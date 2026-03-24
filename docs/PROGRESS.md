@@ -5,7 +5,7 @@
 
 ---
 
-## Visão Geral [██░░░░░░░░] 8/47
+## Visão Geral [██░░░░░░░░] 9/47
 
 ---
 
@@ -85,9 +85,9 @@
 - ⬜ Teste de recall "Não Conforme" >= threshold
 - ⬜ Rodar pytest e validar que todos passam
 
-## 7. Repositório e Entrega [░░░░░░░░░░] 0/5
+## 7. Repositório e Entrega [██░░░░░░░░] 1/5
 
-- ⬜ Inicializar Git e criar repositório no GitHub
+- ✅ Inicializar Git e criar repositório no GitHub (privado — trocar para public na entrega)
 - ⬜ Salvar notebook no Colab via "Salvar cópia no GitHub"
 - ⬜ README.md com descrição do projeto
 - ⬜ Gravar vídeo de 3 minutos

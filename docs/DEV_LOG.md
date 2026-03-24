@@ -104,3 +104,18 @@ __pycache__/
 **O que faz:** Diz ao Git quais arquivos/pastas ignorar. O venv é pesado e específico da máquina — não sobe pro repositório. `__pycache__` e `.pyc` são cache do Python. `.ipynb_checkpoints` são backups automáticos do Jupyter. `.env` pode conter secrets.
 
 **Status:** ✅ Concluído
+
+### 8. Inicialização do Git e push para GitHub
+
+**Comandos:**
+```
+git init
+git add .
+git commit -m "Setup inicial do projeto StructConformity"
+```
+
+**Push:** Via UI do VS Code → Source Control → Publish Branch → GitHub (privado)
+
+**Repositório:** Privado por enquanto — trocar para público antes da entrega final.
+
+**Status:** ✅ Concluído
