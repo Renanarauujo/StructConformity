@@ -37,14 +37,14 @@ MIN_COLUMN_WIDTH_CM = 19.0
 # ---------------------------------------------------------------------------
 ELEMENT_TYPES = ["beam", "column", "footing", "slab"]
 
-# Ranges realistas para cada feature (inclui valores fora da norma)
+# Valores discretos realistas para cada feature
+WIDTH_OPTIONS = list(range(10, 85, 5))          # 10, 15, 20, ..., 80 (múltiplos de 5)
+HEIGHT_OPTIONS = list(range(15, 125, 5))         # 15, 20, 25, ..., 120 (múltiplos de 5)
+FCK_OPTIONS = [15, 20, 25, 30, 35, 50]          # Classes de concreto comerciais
+COVER_OPTIONS = [i * 0.5 for i in range(0, 10)] # 0, 0.5, 1.0, ..., 4.5 (múltiplos de 0.5)
+
+# Ranges contínuos para features sem restrição discreta
 RANGES = {
-    "width_cm": (8, 80),
-    "height_cm": (15, 120),
-    "fck": (15, 50),
-    "cover_cm": (1.5, 5.0),
-    "main_rebar_diam": (8.0, 32.0),
-    "stirrup_diam": (4.0, 10.0),
     "stirrup_spacing_cm": (5, 35),
     "steel_rate": (15, 250),
     "length_cm": (100, 1200),
@@ -117,16 +117,58 @@ def check_conformity(row):
     return "conforme"
 
 
+def generate_beam_dimensions():
+    """
+    Gera largura e altura para vigas com proporções realistas.
+
+    Vigas têm altura maior que a largura:
+    - width tipicamente entre 10 e 30 cm
+    - height entre 1.5x e 4x a largura
+    """
+    width = random.choice([w for w in WIDTH_OPTIONS if 10 <= w <= 30])
+    min_h = max(20, width * 2)
+    max_h = min(120, width * 4)
+    height_options = [h for h in HEIGHT_OPTIONS if min_h <= h <= max_h]
+    height = random.choice(height_options) if height_options else width * 2
+    return width, height
+
+
+def generate_footing_dimensions():
+    """
+    Gera largura e altura para sapatas com proporções realistas.
+
+    Sapatas têm formato quadrático ou levemente retangular:
+    - width e height próximos (diferença máxima de ~30%)
+    - height (espessura) tipicamente entre 30 e 80 cm
+    """
+    width = random.choice([w for w in WIDTH_OPTIONS if w >= 40])
+    # Altura próxima da largura (+-30%), limitada a valores realistas
+    min_h = max(30, int(width * 0.7))
+    max_h = min(120, int(width * 1.3))
+    height_options = [h for h in HEIGHT_OPTIONS if min_h <= h <= max_h]
+    height = random.choice(height_options) if height_options else width
+    return width, height
+
+
 def generate_record_random():
     """Gera um registro totalmente aleatório (pode ou não ser conforme)."""
     element_type = random.choice(ELEMENT_TYPES)
 
+    # Proporções específicas por tipo de elemento
+    if element_type == "footing":
+        width, height = generate_footing_dimensions()
+    elif element_type == "beam":
+        width, height = generate_beam_dimensions()
+    else:
+        width = random.choice(WIDTH_OPTIONS)
+        height = random.choice(HEIGHT_OPTIONS)
+
     return {
         "element_type": element_type,
-        "width_cm": random_in_range(*RANGES["width_cm"]),
-        "height_cm": random_in_range(*RANGES["height_cm"]),
-        "fck": random_in_range(*RANGES["fck"], decimals=0),
-        "cover_cm": random_in_range(*RANGES["cover_cm"]),
+        "width_cm": width,
+        "height_cm": height,
+        "fck": random.choice(FCK_OPTIONS),
+        "cover_cm": random.choice(COVER_OPTIONS),
         "main_rebar_diam": pick_rebar(MAIN_REBAR_OPTIONS),
         "stirrup_diam": pick_rebar(STIRRUP_OPTIONS),
         "stirrup_spacing_cm": random_in_range(*RANGES["stirrup_spacing_cm"]),
@@ -144,21 +186,23 @@ def generate_record_conforme():
     """
     element_type = random.choice(ELEMENT_TYPES)
 
-    # Largura respeitando mínimos por tipo
-    if element_type == "beam":
-        width = random_in_range(12, 60)
+    # Largura respeitando mínimos por tipo (múltiplos de 5)
+    if element_type == "footing":
+        width, height = generate_footing_dimensions()
+    elif element_type == "beam":
+        width, height = generate_beam_dimensions()
     elif element_type == "column":
-        width = random_in_range(19, 80)
+        width = random.choice([w for w in WIDTH_OPTIONS if w >= 20])
+        height = random.choice([h for h in HEIGHT_OPTIONS if h >= 20])
     else:
-        width = random_in_range(15, 80)
+        width = random.choice([w for w in WIDTH_OPTIONS if w >= 15])
+        height = random.choice([h for h in HEIGHT_OPTIONS if h >= 20])
 
-    height = random_in_range(20, 120)
+    # fck >= 20 MPa (exclui 15)
+    fck = random.choice([f for f in FCK_OPTIONS if f >= 20])
 
-    # fck >= 20 MPa (gera entre 20 e 50)
-    fck = random_in_range(20, 50, decimals=0)
-
-    # Cobrimento >= 2.5 cm
-    cover = random_in_range(2.5, 5.0)
+    # Cobrimento >= 2.5 cm (múltiplos de 0.5)
+    cover = random.choice([c for c in COVER_OPTIONS if c >= 2.5])
 
     # Bitola de estribo >= 5.0 mm (exclui 4.2)
     stirrup_diam = random.choice([5.0, 6.3, 8.0, 10.0])
@@ -240,7 +284,7 @@ def save_csv(records, filepath):
 
 def main():
     """Ponto de entrada: gera dataset e exibe estatísticas."""
-    records = generate_dataset(n=1000, target_conforme_ratio=0.45)
+    records = generate_dataset(n=1000, target_conforme_ratio=0.50)
 
     # Estatísticas
     total = len(records)
