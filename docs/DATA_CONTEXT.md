@@ -1,3 +1,4 @@
+
 # StructConformity — Data Context Completo
 
 > Documento de referência que consolida todo o conhecimento das disciplinas da pós-graduação

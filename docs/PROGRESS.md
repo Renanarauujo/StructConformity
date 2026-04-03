@@ -5,7 +5,7 @@
 
 ---
 
-## Visão Geral [██░░░░░░░░] 9/47
+## Visão Geral [██░░░░░░░░] 12/47
 
 ---
 
@@ -19,11 +19,11 @@
 - ✅ Criar estrutura de pastas (backend, frontend, notebook, dataset, docs)
 - ✅ Criar .gitignore
 
-## 2. Dataset [░░░░░░░░░░] 0/5
+## 2. Dataset [██████░░░░] 3/5
 
-- ⬜ Definir regras de conformidade da NBR 6118
-- ⬜ Criar script Python para gerar dataset sintético
-- ⬜ Gerar CSV (~1000 registros, ~60/40 conforme/não conforme)
+- ✅ Definir regras de conformidade da NBR 6118
+- ✅ Criar script Python para gerar dataset sintético
+- ✅ Gerar CSV (~1000 registros, ~60/40 conforme/não conforme)
 - ⬜ Subir CSV no GitHub
 - ⬜ Validar carga via URL raw do GitHub
 

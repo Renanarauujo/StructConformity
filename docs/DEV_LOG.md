@@ -116,6 +116,65 @@ git commit -m "Setup inicial do projeto StructConformity"
 
 **Push:** Via UI do VS Code → Source Control → Publish Branch → GitHub (privado)
 
-**Repositório:** Privado por enquanto — trocar para público antes da entrega final.
+**Repositório:** Privado por enquanto - trocar para público antes da entrega final.
+
+**Status:** ✅ Concluído
+
+---
+
+## Sessão 02 - 2026-04-03
+
+### 1. Definição das regras de conformidade da NBR 6118
+
+**O que são:** Critérios extraídos da norma brasileira NBR 6118 (Projeto de Estruturas de Concreto) que determinam se um elemento estrutural está dentro dos limites aceitáveis. São as "respostas certas" que o modelo de ML vai aprender.
+
+**8 regras implementadas:**
+
+| # | Regra | Condição |
+|---|-------|----------|
+| 1 | Cobrimento mínimo | cover_cm >= 2.5 cm |
+| 2 | Espaçamento máx. estribos | stirrup_spacing <= min(0.6 * h, 30) |
+| 3 | Diâmetro mín. estribo | stirrup_diam >= 5.0 mm |
+| 4 | Taxa mín. armadura (vigas) | steel_rate >= 25 kg/m3 |
+| 5 | Taxa máx. armadura | steel_rate <= 200 kg/m3 |
+| 6 | fck mínimo | fck >= 20 MPa |
+| 7 | Largura mín. viga | width >= 12 cm |
+| 8 | Largura mín. pilar | width >= 19 cm |
+
+**Lógica:** O elemento é conforme APENAS se TODAS as regras aplicáveis forem atendidas. Basta uma violação para ser "nao_conforme".
+
+**Status:** ✅ Concluído
+
+### 2. Criação do script gerador de dataset sintético
+
+**Arquivo:** `dataset/generate_dataset.py`
+
+**O que faz:** Gera registros fictícios de elementos estruturais com propriedades variando dentro e fora dos limites da NBR 6118. Aplica as 8 regras para classificar cada um.
+
+**Estratégia de balanceamento:**
+- 45% dos registros são gerados propositalmente dentro dos limites (conformes)
+- 55% são gerados aleatoriamente (maioria cai como não conforme)
+- O mix resulta em ~60/40 conforme/não conforme
+
+**Decisões importantes:**
+- Seed fixa (`random.seed(42)`) para reprodutibilidade
+- Bitolas de aço usam valores comerciais reais (8, 10, 12.5, 16, 20, 25, 32 mm)
+- Ranges de geração incluem valores fora da norma para criar exemplos negativos realistas
+
+**Status:** ✅ Concluído
+
+### 3. Geração do CSV
+
+**Comando:**
+```
+python dataset/generate_dataset.py
+```
+
+**Resultado:**
+- 1000 registros gerados
+- 617 conformes (61.7%)
+- 383 não conformes (38.3%)
+- Distribuição equilibrada entre os 4 tipos de elementos
+- Salvo em `dataset/structural_conformity.csv`
 
 **Status:** ✅ Concluído
