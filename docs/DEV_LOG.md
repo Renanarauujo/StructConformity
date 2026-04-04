@@ -152,9 +152,9 @@ git commit -m "Setup inicial do projeto StructConformity"
 **O que faz:** Gera registros fictícios de elementos estruturais com propriedades variando dentro e fora dos limites da NBR 6118. Aplica as 8 regras para classificar cada um.
 
 **Estratégia de balanceamento:**
-- 45% dos registros são gerados propositalmente dentro dos limites (conformes)
-- 55% são gerados aleatoriamente (maioria cai como não conforme)
-- O mix resulta em ~60/40 conforme/não conforme
+- 50% dos registros são gerados propositalmente dentro dos limites (conformes)
+- 50% são gerados aleatoriamente (maioria cai como não conforme)
+- O mix resulta em ~57/43 conforme/não conforme
 
 **Decisões importantes:**
 - Seed fixa (`random.seed(42)`) para reprodutibilidade
@@ -163,7 +163,21 @@ git commit -m "Setup inicial do projeto StructConformity"
 
 **Status:** ✅ Concluído
 
-### 3. Geração do CSV
+### 3. Ajustes de realismo nas features
+
+**Valores discretos aplicados:**
+- `width_cm` e `height_cm`: sempre múltiplos de 5 (como se dimensiona na prática)
+- `fck`: apenas classes comerciais [15, 20, 25, 30, 35, 50] MPa
+- `cover_cm`: de 0 a 4.5 cm, sempre múltiplos de 0.5
+
+**Proporções por tipo de elemento:**
+- **Vigas (beam):** altura sempre maior que largura (h/w entre 2x e 4x), largura entre 10-30 cm
+- **Sapatas (footing):** formato quadrático ou levemente retangular (diferença máx ~30%), largura mínima 40 cm
+- **Pilares e lajes:** sem restrição especial de proporção
+
+**Status:** ✅ Concluído
+
+### 4. Geração do CSV
 
 **Comando:**
 ```
@@ -172,9 +186,17 @@ python dataset/generate_dataset.py
 
 **Resultado:**
 - 1000 registros gerados
-- 617 conformes (61.7%)
-- 383 não conformes (38.3%)
+- 572 conformes (57.2%)
+- 428 não conformes (42.8%)
 - Distribuição equilibrada entre os 4 tipos de elementos
 - Salvo em `dataset/structural_conformity.csv`
+
+**Status:** ✅ Concluído
+
+### 5. Upload para GitHub e validação
+
+**Push:** Commits enviados para o repositório privado no GitHub.
+
+**Validação:** Carga do CSV testada localmente via pandas (1000 linhas, 11 colunas, tipos corretos). A URL raw (`https://raw.githubusercontent.com/Renanarauujo/StructConformity/master/dataset/structural_conformity.csv`) funcionará quando o repositório for tornado público antes da entrega.
 
 **Status:** ✅ Concluído
