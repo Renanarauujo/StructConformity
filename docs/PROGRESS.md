@@ -5,7 +5,7 @@
 
 ---
 
-## Visão Geral [███░░░░░░░] 14/47
+## Visão Geral [███████░░░] 32/47
 
 ---
 
@@ -27,39 +27,39 @@
 - ✅ Subir CSV no GitHub
 - ✅ Validar carga via URL raw do GitHub (local OK; URL raw funcionará quando repo ficar público)
 
-## 3. Notebook Colab — ML [░░░░░░░░░░] 0/12
+## 3. Notebook Colab — ML [██████████] 18/18 ✅
 
-### 3.1 Carga e Exploração [░░░░░░░░░░] 0/3
-- ⬜ Carregar dataset via URL
-- ⬜ Análise exploratória (shape, describe, distribuição das classes)
-- ⬜ Visualizações (histogramas, correlações)
+### 3.1 Carga e Exploração [██████████] 3/3 ✅
+- ✅ Carregar dataset via URL
+- ✅ Análise exploratória (shape, describe, distribuição das classes)
+- ✅ Visualizações (histogramas, correlações)
 
-### 3.2 Pré-processamento [░░░░░░░░░░] 0/3
-- ⬜ Separação treino/teste (holdout)
-- ⬜ Normalização (MinMaxScaler) e Padronização (StandardScaler)
-- ⬜ Criar Pipelines (scaler + modelo) para evitar Data Leakage
+### 3.2 Pré-processamento [██████████] 3/3 ✅
+- ✅ Separação treino/teste (holdout)
+- ✅ Normalização (MinMaxScaler) e Padronização (StandardScaler)
+- ✅ Criar Pipelines (scaler + modelo) para evitar Data Leakage
 
-### 3.3 Modelagem [░░░░░░░░░░] 0/4
-- ⬜ Treinar KNN (com Pipeline)
-- ⬜ Treinar Árvore de Classificação (com Pipeline)
-- ⬜ Treinar Naive Bayes (com Pipeline)
-- ⬜ Treinar SVM (com Pipeline)
+### 3.3 Modelagem [██████████] 4/4 ✅
+- ✅ Treinar KNN (com Pipeline)
+- ✅ Treinar Árvore de Classificação (com Pipeline)
+- ✅ Treinar Naive Bayes (com Pipeline)
+- ✅ Treinar SVM (com Pipeline)
 
-### 3.4 Otimização [░░░░░░░░░░] 0/2
-- ⬜ GridSearchCV com cross-validation para cada algoritmo
-- ⬜ Comparar melhores hiperparâmetros de cada modelo
+### 3.4 Otimização [██████████] 2/2 ✅
+- ✅ GridSearchCV com cross-validation para cada algoritmo
+- ✅ Comparar melhores hiperparâmetros de cada modelo
 
-### 3.5 Avaliação [░░░░░░░░░░] 0/3
-- ⬜ Matriz de confusão para cada modelo
-- ⬜ Métricas: acurácia, precisão, recall, F1 — tabela comparativa
-- ⬜ Análise final de resultados (bloco de texto com conclusões)
+### 3.5 Avaliação [██████████] 3/3 ✅
+- ✅ Matriz de confusão para cada modelo
+- ✅ Métricas: acurácia, precisão, recall, F1 — tabela comparativa
+- ✅ Análise final de resultados (bloco de texto com conclusões)
 
-### 3.6 Exportação [░░░░░░░░░░] 0/1
-- ⬜ Exportar melhor modelo como .pkl (pickle)
+### 3.6 Exportação [██████████] 1/1 ✅
+- ✅ Exportar melhor modelo como .pkl (pickle)
 
-### 3.7 Documentação do Notebook [░░░░░░░░░░] 0/2
-- ⬜ Blocos de texto explicando cada etapa (conta uma história)
-- ⬜ Reflexão sobre segurança e anonimização de dados
+### 3.7 Documentação do Notebook [██████████] 2/2 ✅
+- ✅ Blocos de texto explicando cada etapa (conta uma história)
+- ✅ Reflexão sobre segurança e anonimização de dados
 
 ## 4. Backend — API Flask [░░░░░░░░░░] 0/6
 
