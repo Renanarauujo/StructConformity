@@ -540,6 +540,47 @@ def generate_record_conforme():
     }
 
 
+def generate_record_phi42_violation():
+    """
+    Registro com bitola longitudinal 4,2 mm — bitola CA-60 usada em
+    malhas/armadura de distribuicao, inadequada como armadura principal
+    de viga/pilar. Quase sempre resulta em rho_insuficiente.
+
+    Gera combinacoes VALIDAS geometricamente e em cobrimento/fck/estribo
+    para que a unica violacao seja a taxa de armadura (rho_min).
+    """
+    element_type = random.choice(ELEMENT_TYPES)
+
+    if element_type == "beam":
+        dim_a, dim_b = generate_beam_dimensions()
+    else:
+        dim_a, dim_b = generate_column_dimensions()
+        while dim_a < MIN_COLUMN_WIDTH_CM:
+            dim_a = random.choice(DIM_A_OPTIONS)
+
+    # Tudo conforme EXCETO rho (que sera insuficiente com phi 4,2)
+    cover = random.choice([c for c in COVER_OPTIONS if c >= MIN_COVER_CM])
+    fck = random.choice([f for f in FCK_OPTIONS if f >= MIN_FCK_MPA])
+    stirrup_diam = random.choice([d for d in STIRRUP_OPTIONS if d >= MIN_STIRRUP_DIAM_MM])
+    main_diam = 4.2
+    main_qty = random.randint(MIN_REBAR_QUANTITY, 12)
+    s_max = max_stirrup_spacing(element_type, dim_a, dim_b, main_diam)
+    stirrup_spacing = round(random.uniform(5, max(5.1, s_max)), 1)
+
+    return {
+        "element_type": element_type,
+        "dim_a": dim_a,
+        "dim_b": dim_b,
+        "dim_c": generate_dim_c(element_type),
+        "fck": fck,
+        "cover": cover,
+        "main_rebar_diam": main_diam,
+        "main_rebar_quantity": main_qty,
+        "stirrup_diam": stirrup_diam,
+        "stirrup_spacing": stirrup_spacing,
+    }
+
+
 def generate_record_borderline():
     """
     Registro proximo de algum limite — importante para ML aprender a
@@ -582,7 +623,8 @@ def generate_record_borderline():
 def generate_dataset(
     n=2000,
     target_conforme_ratio=0.50,
-    borderline_ratio=0.15,
+    borderline_ratio=0.30,
+    phi42_ratio=0.15,
     max_attempts_factor=10,
 ):
     """
@@ -619,7 +661,17 @@ def generate_dataset(
             conformes.append(rec)
         attempts += 1
 
-    # Nao conformes via random
+    # Nao conformes: parcela dedicada a violacoes com phi 4,2 (hard negatives)
+    n_phi42 = int(n_nc_target * phi42_ratio)
+    attempts = 0
+    while sum(1 for r in nao_conformes) < n_phi42 and attempts < max_attempts:
+        rec = generate_record_phi42_violation()
+        rec["conformity"] = check_conformity(rec)
+        if rec["conformity"] == "nao_conforme":
+            nao_conformes.append(rec)
+        attempts += 1
+
+    # Restante via random
     attempts = 0
     while len(nao_conformes) < n_nc_target and attempts < max_attempts:
         rec = generate_record_random()
@@ -651,7 +703,7 @@ def save_csv(records, filepath):
 
 def main():
     """Gera dataset e exibe estatisticas."""
-    records = generate_dataset(n=2000, target_conforme_ratio=0.50)
+    records = generate_dataset(n=6000, target_conforme_ratio=0.50)
 
     total = len(records)
     conformes = sum(1 for r in records if r["conformity"] == "conforme")
