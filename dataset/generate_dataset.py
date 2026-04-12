@@ -59,6 +59,12 @@ STIRRUP_SPACING_COLUMN_PHI_FACTOR = 12.0
 # Armadura longitudinal
 MIN_REBAR_QUANTITY = 4
 
+# Bitola longitudinal minima (NBR 6118)
+#   Viga:  phi >= 8 mm  (caso especifico; ideal >= 10)
+#   Pilar: phi >= 10 mm (nao se permite 8 mm)
+MIN_MAIN_REBAR_DIAM_BEAM_MM = 8.0
+MIN_MAIN_REBAR_DIAM_COLUMN_MM = 10.0
+
 #   Taxa minima em vigas (rho = As/Ac, em %) — NBR 6118, tabela por fck
 RHO_MIN_BEAM_BY_FCK = {
     20: 0.150, 25: 0.150, 30: 0.150, 35: 0.164,
@@ -302,6 +308,7 @@ REASONS = (
     "rho_insuficiente",
     "rho_excedido",
     "espacamento_insuficiente",
+    "main_rebar_diam_invalido",
 )
 
 
@@ -348,6 +355,12 @@ def check_conformity_detailed(row):
     # Regra 5 — estribo bitola minima
     if stirrup_diam < MIN_STIRRUP_DIAM_MM:
         return fail("stirrup_diam_invalido")
+
+    # Regra 5b — bitola longitudinal minima por tipo (NBR 6118)
+    if element_type == "beam" and main_rebar_diam < MIN_MAIN_REBAR_DIAM_BEAM_MM:
+        return fail("main_rebar_diam_invalido")
+    if element_type == "column" and main_rebar_diam < MIN_MAIN_REBAR_DIAM_COLUMN_MM:
+        return fail("main_rebar_diam_invalido")
 
     # Regra 6 — estribo espacamento maximo (criterio por tipo)
     s_max = max_stirrup_spacing(element_type, dim_a, dim_b, main_rebar_diam)
@@ -416,12 +429,18 @@ def generate_dim_c(element_type):
 # ---------------------------------------------------------------------------
 # Geradores de registros
 # ---------------------------------------------------------------------------
+def _long_options_for(element_type):
+    """Bitolas longitudinais permitidas por tipo (respeita regra 5b)."""
+    phi_min = MIN_MAIN_REBAR_DIAM_COLUMN_MM if element_type == "column" else MIN_MAIN_REBAR_DIAM_BEAM_MM
+    return [d for d in REBAR_OPTIONS if d >= phi_min]
+
+
 def _sample_geometric_combo(element_type, dim_a, dim_b, cover, stirrup_diam, max_tries=200):
     """
     Sorteia (main_rebar_diam, main_rebar_quantity) que passe na validacao
     geometrica (cabem na secao). Retorna None se nao achar.
     """
-    long_options = [d for d in REBAR_OPTIONS if d >= 8.0]
+    long_options = _long_options_for(element_type)
     qty_lo, qty_hi = REBAR_QUANTITY_RANGE_CONFORME
 
     for _ in range(max_tries):
@@ -439,7 +458,7 @@ def _sample_conforme_rebar_combo(element_type, dim_a, dim_b, fck, cover, stirrup
       - taxa de armadura (rho_min <= rho <= rho_max)
       - validacao geometrica
     """
-    long_options = [d for d in REBAR_OPTIONS if d >= 8.0]
+    long_options = _long_options_for(element_type)
     qty_lo, qty_hi = REBAR_QUANTITY_RANGE_CONFORME
 
     if element_type == "beam":
