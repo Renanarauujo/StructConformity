@@ -46,6 +46,16 @@ MIN_BEAM_WIDTH_CM = 12.0
 MIN_COLUMN_WIDTH_CM = 19.0
 MIN_REBAR_QUANTITY = 4
 
+# Taxa de armadura maxima (rho = As/Ac, em %)
+# Beam: 4% (NBR 6118, 17.3.5.3.2)
+# Column: 8% (NBR 6118, 17.3.5.3.2 - inclui regioes de emenda)
+MAX_RHO_BEAM_PCT = 4.0
+MAX_RHO_COLUMN_PCT = 8.0
+
+# Caps fisicos para o gerador random (evita combinacoes que nao cabem na secao)
+PHYSICAL_CAP_RHO_BEAM_PCT = 6.0
+PHYSICAL_CAP_RHO_COLUMN_PCT = 10.0
+
 # Taxa mínima de armadura longitudinal em vigas (ρmin = As/Ac, em %)
 # Tabela NBR 6118, truncada em fck = 50 MPa.
 RHO_MIN_BY_FCK = {
@@ -169,10 +179,18 @@ def check_conformity(row):
         return "nao_conforme"
 
     # Regra 9 — Taxa mínima de armadura em VIGAS (ρ >= ρmin(fck), NBR 6118)
+    rho = rho_percent(main_rebar_diam, main_rebar_quantity, dim_a, dim_b)
     if element_type == "beam" and fck in RHO_MIN_BY_FCK:
-        rho = rho_percent(main_rebar_diam, main_rebar_quantity, dim_a, dim_b)
         if rho < RHO_MIN_BY_FCK[fck]:
             return "nao_conforme"
+
+    # Regra 10 — Taxa máxima de armadura
+    #   Viga:  ρ <= 4%  (NBR 6118, 17.3.5.3.2)
+    #   Pilar: ρ <= 8%  (limite incluindo regiões de emenda)
+    if element_type == "beam" and rho > MAX_RHO_BEAM_PCT:
+        return "nao_conforme"
+    if element_type == "column" and rho > MAX_RHO_COLUMN_PCT:
+        return "nao_conforme"
 
     return "conforme"
 
@@ -214,13 +232,28 @@ def generate_dim_c(element_type):
 # Geradores de registros
 # ---------------------------------------------------------------------------
 def generate_record_random():
-    """Gera um registro totalmente aleatório (pode ou não ser conforme)."""
+    """
+    Gera um registro totalmente aleatório (pode ou não ser conforme).
+
+    Aplica cap físico em ρ para evitar combinações impossíveis
+    (ex.: 20 barras de 25mm em seção 10x20 — não caberiam).
+    Reamostra (diam, qty) até ρ ficar abaixo do cap físico.
+    """
     element_type = random.choice(ELEMENT_TYPES)
 
     if element_type == "beam":
         dim_a, dim_b = generate_beam_dimensions()
+        cap = PHYSICAL_CAP_RHO_BEAM_PCT
     else:
         dim_a, dim_b = generate_column_dimensions()
+        cap = PHYSICAL_CAP_RHO_COLUMN_PCT
+
+    # Reamostra (diam, qty) até respeitar cap físico
+    for _ in range(100):
+        main_diam = pick_rebar()
+        main_qty = random.randint(*REBAR_QUANTITY_RANGE_RANDOM)
+        if rho_percent(main_diam, main_qty, dim_a, dim_b) <= cap:
+            break
 
     return {
         "element_type": element_type,
@@ -229,8 +262,8 @@ def generate_record_random():
         "dim_c": generate_dim_c(element_type),
         "fck": random.choice(FCK_OPTIONS),
         "cover": random.choice(COVER_OPTIONS),
-        "main_rebar_diam": pick_rebar(),
-        "main_rebar_quantity": random.randint(*REBAR_QUANTITY_RANGE_RANDOM),
+        "main_rebar_diam": main_diam,
+        "main_rebar_quantity": main_qty,
         "stirrup_diam": pick_rebar(),
         "stirrup_spacing": random_in_range(*STIRRUP_SPACING_RANGE),
     }
@@ -248,18 +281,23 @@ def _pick_conforme_rebar_combo(element_type, dim_a, dim_b, fck):
     qty_lo, qty_hi = REBAR_QUANTITY_RANGE_CONFORME
     rebar_long_options = [d for d in REBAR_OPTIONS if d >= 8.0]
 
-    if element_type != "beam" or fck not in RHO_MIN_BY_FCK:
-        return random.choice(rebar_long_options), random.randint(qty_lo, qty_hi)
+    rho_min = RHO_MIN_BY_FCK.get(fck, 0.0) if element_type == "beam" else 0.0
+    rho_max = MAX_RHO_BEAM_PCT if element_type == "beam" else MAX_RHO_COLUMN_PCT
 
-    rho_min = RHO_MIN_BY_FCK[fck]
-    for _ in range(50):
+    for _ in range(100):
         diam = random.choice(rebar_long_options)
         qty = random.randint(qty_lo, qty_hi)
-        if rho_percent(diam, qty, dim_a, dim_b) >= rho_min:
+        rho = rho_percent(diam, qty, dim_a, dim_b)
+        if rho_min <= rho <= rho_max:
             return diam, qty
 
-    # Fallback: combo máximo (garante ρ alto)
-    return max(rebar_long_options), qty_hi
+    # Fallback: menor combo que cumpre rho_min (prioriza respeitar ρmax)
+    for diam in rebar_long_options:
+        for qty in range(qty_lo, qty_hi + 1):
+            rho = rho_percent(diam, qty, dim_a, dim_b)
+            if rho_min <= rho <= rho_max:
+                return diam, qty
+    return rebar_long_options[0], qty_lo
 
 
 def generate_record_conforme():
