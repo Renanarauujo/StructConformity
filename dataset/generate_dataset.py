@@ -559,30 +559,33 @@ def generate_record_conforme():
     }
 
 
-def generate_record_phi42_violation():
+def generate_record_invalid_main_diam():
     """
-    Registro com bitola longitudinal 4,2 mm — bitola CA-60 usada em
-    malhas/armadura de distribuicao, inadequada como armadura principal
-    de viga/pilar. Quase sempre resulta em rho_insuficiente.
+    Registro com bitola longitudinal abaixo do minimo normativo:
+      - viga: phi em {4.2, 5.0, 6.3}
+      - pilar: phi em {4.2, 5.0, 6.3, 8.0}
 
-    Gera combinacoes VALIDAS geometricamente e em cobrimento/fck/estribo
-    para que a unica violacao seja a taxa de armadura (rho_min).
+    Tudo mais e valido (cobrimento, fck, estribo, geometria), de forma
+    que a violacao capturada seja essencialmente Regra 5b
+    (main_rebar_diam_invalido). Se rho tambem cair fora, tudo bem —
+    ainda e nao_conforme.
     """
     element_type = random.choice(ELEMENT_TYPES)
 
     if element_type == "beam":
         dim_a, dim_b = generate_beam_dimensions()
+        invalid_diams = [d for d in REBAR_OPTIONS if d < MIN_MAIN_REBAR_DIAM_BEAM_MM]
     else:
         dim_a, dim_b = generate_column_dimensions()
         while dim_a < MIN_COLUMN_WIDTH_CM:
             dim_a = random.choice(DIM_A_OPTIONS)
+        invalid_diams = [d for d in REBAR_OPTIONS if d < MIN_MAIN_REBAR_DIAM_COLUMN_MM]
 
-    # Tudo conforme EXCETO rho (que sera insuficiente com phi 4,2)
     cover = random.choice([c for c in COVER_OPTIONS if c >= MIN_COVER_CM])
     fck = random.choice([f for f in FCK_OPTIONS if f >= MIN_FCK_MPA])
     stirrup_diam = random.choice([d for d in STIRRUP_OPTIONS if d >= MIN_STIRRUP_DIAM_MM])
-    main_diam = 4.2
-    main_qty = random.randint(MIN_REBAR_QUANTITY, 12)
+    main_diam = random.choice(invalid_diams)
+    main_qty = random.randint(MIN_REBAR_QUANTITY, 16)
     s_max = max_stirrup_spacing(element_type, dim_a, dim_b, main_diam)
     stirrup_spacing = round(random.uniform(5, max(5.1, s_max)), 1)
 
@@ -643,7 +646,7 @@ def generate_dataset(
     n=2000,
     target_conforme_ratio=0.50,
     borderline_ratio=0.30,
-    phi42_ratio=0.15,
+    phi42_ratio=0.30,
     max_attempts_factor=10,
 ):
     """
@@ -684,7 +687,7 @@ def generate_dataset(
     n_phi42 = int(n_nc_target * phi42_ratio)
     attempts = 0
     while sum(1 for r in nao_conformes) < n_phi42 and attempts < max_attempts:
-        rec = generate_record_phi42_violation()
+        rec = generate_record_invalid_main_diam()
         rec["conformity"] = check_conformity(rec)
         if rec["conformity"] == "nao_conforme":
             nao_conformes.append(rec)
