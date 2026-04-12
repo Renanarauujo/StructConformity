@@ -1,0 +1,149 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    background: #f0f2f5;
+    color: #1a1a2e;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem 1rem;
+}
+
+.container {
+    background: #ffffff;
+    border-radius: 16px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+    max-width: 640px;
+    width: 100%;
+    padding: 2.5rem;
+}
+
+header {
+    text-align: center;
+    margin-bottom: 2rem;
+}
+
+h1 {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: #16213e;
+    letter-spacing: -0.5px;
+}
+
+.subtitle {
+    font-size: 0.875rem;
+    color: #6b7280;
+    margin-top: 0.25rem;
+}
+
+.form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+}
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #374151;
+}
+
+input,
+select {
+    padding: 0.6rem 0.75rem;
+    border: 1.5px solid #d1d5db;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    color: #1a1a2e;
+    background: #fafafa;
+    transition: border-color 0.2s;
+}
+
+input:focus,
+select:focus {
+    outline: none;
+    border-color: #2563eb;
+    background: #fff;
+}
+
+input::placeholder {
+    color: #9ca3af;
+}
+
+button {
+    width: 100%;
+    margin-top: 1.5rem;
+    padding: 0.85rem;
+    background: #2563eb;
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+button:hover {
+    background: #1d4ed8;
+}
+
+button:disabled {
+    background: #93c5fd;
+    cursor: not-allowed;
+}
+
+.result {
+    margin-top: 1.5rem;
+    padding: 1.25rem;
+    border-radius: 10px;
+    text-align: center;
+    font-size: 1.1rem;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+.result.hidden {
+    display: none;
+}
+
+.result.conforme {
+    background: #ecfdf5;
+    border: 1.5px solid #10b981;
+    color: #065f46;
+}
+
+.result.nao_conforme {
+    background: #fef2f2;
+    border: 1.5px solid #ef4444;
+    color: #991b1b;
+}
+
+footer {
+    margin-top: 2rem;
+    text-align: center;
+    font-size: 0.75rem;
+    color: #9ca3af;
+}
+
+@media (max-width: 500px) {
+    .form-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .container {
+        padding: 1.5rem;
+    }
+}

@@ -377,3 +377,190 @@ python dataset/generate_dataset.py
 **Secao 3 (Notebook Colab) 100% concluida!**
 
 **Status:** ✅ Concluido
+
+---
+
+## Sessao 04 - 2026-04-11
+
+### 1. Criacao do app.py com Flask
+
+**Arquivo:** `backend/app.py`
+
+**Construcao incremental:**
+- Imports iniciais: `Flask`, `joblib`, `numpy`
+- Instancia Flask com `Flask(__name__)`
+- Carga do modelo com `joblib.load("model/best_model.pkl")`
+- Rota raiz GET `/` retornando texto simples
+
+**Teste:** Servidor subiu em `http://localhost:5000/`, texto "StructConformity API rodando" exibido no navegador.
+
+**Conceitos trabalhados:**
+- `Flask(__name__)` - instancia do servidor web, `__name__` identifica o modulo
+- `@app.route("/")` - decorator que registra funcao como rota
+- `if __name__ == "__main__"` - execucao condicional (so roda direto, nao via import)
+- `debug=True` - hot reload automatico ao salvar
+
+**Status:** ✅ Concluido
+
+### 2. Endpoint POST /predict
+
+**O que faz:** Recebe dados de um elemento estrutural via JSON, passa para o modelo e retorna "conforme" ou "nao_conforme".
+
+**Construcao:**
+- Import de `request` e `jsonify`
+- `@app.route("/predict", methods=["POST"])` - rota que aceita POST
+- `request.get_json()` - extrai dados do corpo da requisicao
+- `np.array([[ ... ]])` - monta array 1x10 na ordem das features do treino
+- `model.predict(features)` - Pipeline faz scaler + predicao
+- `jsonify()` - converte dicionario Python em resposta JSON
+
+**Teste:** Requisicao POST via curl/Python com viga conforme retornou `{"prediction": "conforme"}`.
+
+**Conceitos trabalhados:**
+- Diferenca entre GET (pedir informacao) e POST (enviar dados)
+- `request.get_json()` - parsing do corpo da requisicao
+- `np.array([[ ]])` - colchetes duplos para formato matricial (1 amostra x N features)
+- Mapeamento do LabelEncoder: beam=0, column=1, footing=2, slab=3
+
+**Status:** ✅ Concluido
+
+### 3. Documentacao automatica com Swagger (flask-openapi3)
+
+**Mudancas no codigo:**
+- Substituiu `Flask` por `OpenAPI` do `flask-openapi3`
+- Adicionou `Info` com titulo e versao da API
+- Trocou `@app.route()` por `@app.get()` e `@app.post()` (decorators especificos)
+- Criou schema `PredictRequest` com `pydantic.BaseModel` e `Field` para documentar campos
+- Parametro `body: PredictRequest` na funcao predict para validacao automatica
+
+**Resultado:** Swagger UI acessivel em `http://localhost:5000/openapi/swagger` com todos os 10 campos documentados e testavel pelo browser.
+
+**Teste pelo Swagger:** Viga com fck=19 retornou "conforme" (falso positivo). Discussao sobre limitacoes do modelo ML vs regras hard-coded da norma.
+
+**Conceitos trabalhados:**
+- OpenAPI/Swagger - especificacao que documenta APIs automaticamente
+- `pydantic.BaseModel` - schema que define estrutura de dados com tipos e descricoes
+- `Field(...)` - campo obrigatorio com metadata
+- Diferenca entre regras exatas e aproximacao por ML (recall < 100%)
+
+**Status:** ✅ Concluido
+
+### 4. CORS configurado
+
+**Mudanca:** Adicionou `from flask_cors import CORS` e `CORS(app)` no app.py.
+
+**O que faz:** Permite que o frontend (arquivo HTML aberto no navegador) acesse a API Flask sem ser bloqueado pelo navegador.
+
+**Status:** ✅ Concluido
+
+### 5. Frontend completo (HTML + CSS + JS)
+
+**Arquivos criados:**
+- `frontend/index.html` - formulario com 10 campos (select para tipo, fck e bitola; input para os demais)
+- `frontend/style.css` - design limpo e responsivo, card centralizado, grid 2 colunas, feedback visual verde/vermelho
+- `frontend/script.js` - fetch POST para API, exibicao do resultado com classe CSS dinamica
+
+**Decisoes de design:**
+- Campos com `select` para valores discretos (tipo, fck, bitola) - evita entrada invalida
+- Campos com `input number` e `step` para valores continuos
+- Resultado com fundo verde (conforme) ou vermelho (nao conforme)
+- Layout responsivo: 2 colunas em desktop, 1 coluna em mobile
+- Botao desabilita durante requisicao para evitar duplo clique
+
+**Status:** ✅ Concluido
+
+### 6. Testes automatizados (PyTest)
+
+**Arquivo:** `backend/test_model.py`
+
+**4 testes criados:**
+| Teste | Metrica | Threshold |
+|-------|---------|-----------|
+| test_accuracy | Acuracia geral | >= 0.85 |
+| test_recall_nao_conforme | Recall classe 0 (NC) | >= 0.90 |
+| test_precision_conforme | Precisao classe 1 (C) | >= 0.85 |
+| test_f1_score | F1 ponderado | >= 0.85 |
+
+**Detalhes de implementacao:**
+- Usa `Path(__file__)` para resolver caminhos relativos (roda de qualquer diretorio)
+- Reproduz o mesmo split do notebook (70/30, stratify, seed 42)
+- Coluna renomeada para `element_type_encoded` (nome que o modelo espera)
+- Ordem das features explicita para evitar erro de feature names
+
+**Resultado:** 4/4 testes passando.
+
+**Status:** ✅ Concluido
+
+### 7. README.md do repositorio
+
+**Conteudo:** Descricao do projeto, estrutura de pastas, instrucoes de instalacao e execucao, tabela de features, tecnologias usadas.
+
+**Status:** ✅ Concluido
+
+---
+
+## Sessão 02 — 2026-04-12 — Reestruturação do dataset
+
+### 1. Motivação
+
+Refinar o dataset para focar apenas em vigas e pilares, remover features pouco discriminativas (`steel_rate`) e adicionar regras mais ricas pedagogicamente. Padronizar nomenclatura de dimensões (`dim_a`, `dim_b`, `dim_c`).
+
+### 2. Schema novo
+
+**Features (10):**
+```
+element_type, dim_a, dim_b, dim_c, fck, cover,
+main_rebar_diam, main_rebar_quantity, stirrup_diam, stirrup_spacing
+```
+
+**Mudanças:**
+- Removido: `steel_rate`, `length_cm`, `width_cm`, `height_cm`, `cover_cm`, `stirrup_spacing_cm`
+- Removidos tipos `footing` e `slab` (fora do escopo)
+- Adicionado `main_rebar_quantity` (quantidade de barras longitudinais)
+- Renomeado dimensões para `dim_a`/`dim_b`/`dim_c` sem sufixo `_cm`
+- Bitolas unificadas: `[4.2, 5.0, 6.3, 8.0, 10.0, 12.5, 16.0, 20.0, 22.0, 25.0]`
+- `FCK_OPTIONS` expandida para `[10, 15, 20, 25, 30, 35, 40, 45, 50]`
+
+### 3. Regras de conformidade (9)
+
+| # | Regra | Aplica a |
+|---|---|---|
+| 1 | cover >= 2.5 cm | todos |
+| 2 | stirrup_spacing <= min(0.6·dim_b, 30) | todos |
+| 3 | stirrup_diam >= 5.0 mm | todos |
+| 4 | stirrup_spacing múltiplo de 5 | todos |
+| 5 | fck >= 20 MPa | todos |
+| 6 | dim_a >= 12 cm | viga |
+| 7 | dim_a >= 19 cm | pilar |
+| 8 | main_rebar_quantity >= 4 | todos |
+| 9 | ρ = As/Ac >= ρmin(fck) (tabela NBR 6118) | viga |
+
+**Premissa:** comprimento de cada barra longitudinal = `dim_c` (ignora ganchos/emendas).
+
+### 4. Arquivos atualizados
+
+- `dataset/generate_dataset.py` — reescrito do zero
+- `notebook/struct_conformity_ml.ipynb` — outputs limpos, features renomeadas
+- `notebook/train_and_export.py` — novo script de treino autônomo (espelha o notebook)
+- `backend/app.py` — schema pydantic novo
+- `backend/test_model.py` — `feature_cols` atualizada
+- `frontend/index.html` — formulário reconstruído (selects de bitola, fck, etc.)
+- `frontend/script.js` — lista de campos e parse int para `element_type`/`main_rebar_quantity`
+- `backend/model/best_model.pkl` — retreinado
+
+### 5. Resultados do treino
+
+```
+KNN            acc=0.7733
+Decision Tree  acc=0.9767  ← selecionado
+Naive Bayes    acc=0.8300
+SVM            acc=0.8333
+```
+
+Decision Tree continua vencendo — esperado, já que a maioria das regras são thresholds e condicionais por categoria.
+
+### 6. Testes automatizados
+
+4/4 passam com thresholds atuais (acc ≥ 0.85, recall_NC ≥ 0.90, precision_C ≥ 0.85, f1 ≥ 0.85).
+
+**Status:** ✅ Concluída

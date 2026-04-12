@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StructConformity</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>StructConformity</h1>
+            <p class="subtitle">Classificação de conformidade estrutural via Machine Learning</p>
+        </header>
+
+        <form id="predict-form">
+            <div class="form-grid">
+                <div class="field">
+                    <label for="element_type">Tipo de elemento</label>
+                    <select id="element_type" required>
+                        <option value="">Selecione...</option>
+                        <option value="0">Viga</option>
+                        <option value="1">Pilar</option>
+                    </select>
+                </div>
+
+                <div class="field">
+                    <label for="dim_a">dim_a — largura da seção (cm)</label>
+                    <input type="number" id="dim_a" step="5" min="10" placeholder="Ex: 20" required>
+                </div>
+
+                <div class="field">
+                    <label for="dim_b">dim_b — altura da seção (cm)</label>
+                    <input type="number" id="dim_b" step="5" min="15" placeholder="Ex: 50" required>
+                </div>
+
+                <div class="field">
+                    <label for="dim_c">dim_c — comprimento / altura Z (cm)</label>
+                    <input type="number" id="dim_c" step="5" min="100" placeholder="Ex: 500" required>
+                </div>
+
+                <div class="field">
+                    <label for="fck">fck (MPa)</label>
+                    <select id="fck" required>
+                        <option value="">Selecione...</option>
+                        <option value="10">10</option>
+                        <option value="15">15</option>
+                        <option value="20">20</option>
+                        <option value="25">25</option>
+                        <option value="30">30</option>
+                        <option value="35">35</option>
+                        <option value="40">40</option>
+                        <option value="45">45</option>
+                        <option value="50">50</option>
+                    </select>
+                </div>
+
+                <div class="field">
+                    <label for="cover">Cobrimento (cm)</label>
+                    <input type="number" id="cover" step="0.5" min="0" placeholder="Ex: 3.0" required>
+                </div>
+
+                <div class="field">
+                    <label for="main_rebar_diam">Bitola longitudinal (mm)</label>
+                    <select id="main_rebar_diam" required>
+                        <option value="">Selecione...</option>
+                        <option value="4.2">4.2</option>
+                        <option value="5.0">5.0</option>
+                        <option value="6.3">6.3</option>
+                        <option value="8.0">8.0</option>
+                        <option value="10.0">10.0</option>
+                        <option value="12.5">12.5</option>
+                        <option value="16.0">16.0</option>
+                        <option value="20.0">20.0</option>
+                        <option value="22.0">22.0</option>
+                        <option value="25.0">25.0</option>
+                    </select>
+                </div>
+
+                <div class="field">
+                    <label for="main_rebar_quantity">Quantidade de barras longitudinais</label>
+                    <input type="number" id="main_rebar_quantity" step="1" min="2" placeholder="Ex: 6" required>
+                </div>
+
+                <div class="field">
+                    <label for="stirrup_diam">Bitola do estribo (mm)</label>
+                    <select id="stirrup_diam" required>
+                        <option value="">Selecione...</option>
+                        <option value="4.2">4.2</option>
+                        <option value="5.0">5.0</option>
+                        <option value="6.3">6.3</option>
+                        <option value="8.0">8.0</option>
+                        <option value="10.0">10.0</option>
+                        <option value="12.5">12.5</option>
+                    </select>
+                </div>
+
+                <div class="field">
+                    <label for="stirrup_spacing">Espaçamento estribos (cm)</label>
+                    <input type="number" id="stirrup_spacing" step="0.1" min="5" placeholder="Ex: 15" required>
+                </div>
+            </div>
+
+            <button type="submit" id="btn-predict">Verificar Conformidade</button>
+        </form>
+
+        <div id="result" class="result hidden">
+            <span id="result-icon"></span>
+            <span id="result-text"></span>
+        </div>
+
+        <footer>
+            <p>MVP Pós-Graduação em Engenharia de Software - PUC-RJ</p>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

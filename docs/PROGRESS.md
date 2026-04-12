@@ -5,7 +5,7 @@
 
 ---
 
-## Visão Geral [███████░░░] 32/47
+## Visão Geral [█████████░] 52/54
 
 ---
 
@@ -61,40 +61,50 @@
 - ✅ Blocos de texto explicando cada etapa (conta uma história)
 - ✅ Reflexão sobre segurança e anonimização de dados
 
-## 4. Backend — API Flask [░░░░░░░░░░] 0/6
+## 4. Backend — API Flask [██████████] 6/6 ✅
 
-- ⬜ Criar app.py com Flask
-- ⬜ Carregar modelo .pkl ao iniciar
-- ⬜ Endpoint POST /predict (recebe dados, retorna predição)
-- ⬜ Documentação automática (Swagger via flask-openapi3)
-- ⬜ CORS configurado para o frontend
-- ⬜ Testar via Swagger no browser
+- ✅ Criar app.py com Flask
+- ✅ Carregar modelo .pkl ao iniciar
+- ✅ Endpoint POST /predict (recebe dados, retorna predição)
+- ✅ Documentação automática (Swagger via flask-openapi3)
+- ✅ CORS configurado para o frontend
+- ✅ Testar via Swagger no browser
 
-## 5. Frontend — HTML+CSS+JS [░░░░░░░░░░] 0/5
+## 5. Frontend — HTML+CSS+JS [██████████] 5/5 ✅
 
-- ⬜ Criar index.html com formulário de entrada
-- ⬜ Campos: tipo elemento, largura, altura, fck, cobrimento, bitolas, espaçamento, taxa
-- ⬜ Estilizar com style.css
-- ⬜ script.js — fetch para API, exibir resultado
-- ⬜ Exibir "Conforme" ou "Não Conforme" com destaque visual
+- ✅ Criar index.html com formulário de entrada
+- ✅ Campos: tipo elemento, largura, altura, fck, cobrimento, bitolas, espaçamento, taxa
+- ✅ Estilizar com style.css
+- ✅ script.js — fetch para API, exibir resultado
+- ✅ Exibir "Conforme" ou "Não Conforme" com destaque visual
 
-## 6. Testes — PyTest [░░░░░░░░░░] 0/4
+## 6. Testes — PyTest [██████████] 4/4 ✅
 
-- ⬜ Criar test_model.py
-- ⬜ Teste de acurácia >= threshold
-- ⬜ Teste de recall "Não Conforme" >= threshold
-- ⬜ Rodar pytest e validar que todos passam
+- ✅ Criar test_model.py
+- ✅ Teste de acurácia >= threshold
+- ✅ Teste de recall "Não Conforme" >= threshold
+- ✅ Rodar pytest e validar que todos passam
 
-## 7. Repositório e Entrega [██░░░░░░░░] 1/5
+## 7. Repositório e Entrega [██████░░░░] 2/5
 
 - ✅ Inicializar Git e criar repositório no GitHub (privado — trocar para public na entrega)
 - ⬜ Salvar notebook no Colab via "Salvar cópia no GitHub"
-- ⬜ README.md com descrição do projeto
+- ✅ README.md com descrição do projeto
 - ⬜ Gravar vídeo de 3 minutos
 - ⬜ Validar que tudo roda (notebook executa sem erros, app funciona, testes passam)
 
-## 8. Documentação Complementar [██░░░░░░░░] 1/3
+## 8. Documentação Complementar [██████████] 3/3 ✅
 
 - ✅ DATA_CONTEXT.md (referência completa das disciplinas)
-- ⬜ DEV_LOG.md completo (registro de todas as sessões)
-- ⬜ README.md do repositório
+- ✅ DEV_LOG.md completo (registro de todas as sessões)
+- ✅ README.md do repositório
+
+## 9. Reestruturação v2 — Dataset & Regras [██████████] 7/7 ✅
+
+- ✅ Novo schema: dim_a/dim_b/dim_c, main_rebar_quantity, sem steel_rate
+- ✅ Restringir a beam e column (remover footing/slab)
+- ✅ 9 regras NBR 6118 incluindo ρmin por fck (tabela)
+- ✅ Notebook atualizado (features novas, outputs limpos)
+- ✅ Backend/frontend/testes atualizados
+- ✅ Modelo retreinado (Decision Tree, acc=0.9767)
+- ✅ Pytest 4/4 passando
