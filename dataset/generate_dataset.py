@@ -52,9 +52,15 @@ MIN_REBAR_QUANTITY = 4
 MAX_RHO_BEAM_PCT = 4.0
 MAX_RHO_COLUMN_PCT = 8.0
 
+# Taxa minima de armadura em PILARES (rho = As/Ac, em %)
+MIN_RHO_COLUMN_PCT = 0.4
+
 # Caps fisicos para o gerador random (evita combinacoes que nao cabem na secao)
 PHYSICAL_CAP_RHO_BEAM_PCT = 6.0
 PHYSICAL_CAP_RHO_COLUMN_PCT = 10.0
+
+# Bitola maxima de estribo (acima de 10mm e muito dificil de dobrar/armar)
+MAX_STIRRUP_DIAM_MM = 10.0
 
 # Taxa mínima de armadura longitudinal em vigas (ρmin = As/Ac, em %)
 # Tabela NBR 6118, truncada em fck = 50 MPa.
@@ -78,8 +84,10 @@ FCK_OPTIONS = [10, 15, 20, 25, 30, 35, 40, 45, 50]
 # Cobrimento (cm) — múltiplos de 0.5
 COVER_OPTIONS = [i * 0.5 for i in range(0, 10)]
 
-# Bitolas comerciais unificadas (mm) — mesmas opções para longitudinal e estribo
+# Bitolas comerciais (mm)
 REBAR_OPTIONS = [4.2, 5.0, 6.3, 8.0, 10.0, 12.5, 16.0, 20.0, 22.0, 25.0]
+# Estribos: restritos a <= 10mm (bitolas maiores sao impraticaveis de dobrar)
+STIRRUP_OPTIONS = [d for d in REBAR_OPTIONS if d <= MAX_STIRRUP_DIAM_MM]
 
 # dim_c por tipo (cm, múltiplos de 5)
 DIM_C_BEAM_OPTIONS = list(range(100, 1205, 5))
@@ -192,6 +200,10 @@ def check_conformity(row):
     if element_type == "column" and rho > MAX_RHO_COLUMN_PCT:
         return "nao_conforme"
 
+    # Regra 11 — Taxa mínima de armadura em PILARES (NBR 6118, 17.3.5.3.1)
+    if element_type == "column" and rho < MIN_RHO_COLUMN_PCT:
+        return "nao_conforme"
+
     return "conforme"
 
 
@@ -264,7 +276,7 @@ def generate_record_random():
         "cover": random.choice(COVER_OPTIONS),
         "main_rebar_diam": main_diam,
         "main_rebar_quantity": main_qty,
-        "stirrup_diam": pick_rebar(),
+        "stirrup_diam": random.choice(STIRRUP_OPTIONS),
         "stirrup_spacing": random_in_range(*STIRRUP_SPACING_RANGE),
     }
 
@@ -328,7 +340,7 @@ def generate_record_conforme():
     cover = random.choice([c for c in COVER_OPTIONS if c >= MIN_COVER_CM])
 
     # Regra 3 — estribo >= 5.0 mm (exclui 4.2)
-    stirrup_diam = random.choice([d for d in REBAR_OPTIONS if d >= MIN_STIRRUP_DIAM_MM])
+    stirrup_diam = random.choice([d for d in STIRRUP_OPTIONS if d >= MIN_STIRRUP_DIAM_MM])
 
     # Regras 2 e 4 — espaçamento múltiplo de 5 e <= min(0.6*dim_b, 30)
     max_spacing = min(dim_b * MAX_STIRRUP_SPACING_FACTOR, MAX_STIRRUP_SPACING_ABS_CM)
@@ -357,23 +369,38 @@ def generate_record_conforme():
 # ---------------------------------------------------------------------------
 # Pipeline do dataset
 # ---------------------------------------------------------------------------
-def generate_dataset(n=1000, target_conforme_ratio=0.50):
-    """Gera o dataset completo, balanceado conforme/não conforme."""
+def generate_dataset(n=1000, target_conforme_ratio=0.50, max_attempts_factor=5):
+    """
+    Gera o dataset completo, balanceado conforme/não conforme.
+
+    Usa retry loop: continua sorteando conformes até atingir a cota,
+    e não-conformes até completar o restante. Evita desbalanceamento
+    causado por "vazamento" (conformes que falham em alguma regra).
+    """
     n_conforme_target = int(n * target_conforme_ratio)
-    n_random = n - n_conforme_target
+    n_nao_conforme_target = n - n_conforme_target
 
-    records = []
+    max_attempts = n * max_attempts_factor
+    conformes = []
+    nao_conformes = []
 
-    for _ in range(n_conforme_target):
+    attempts = 0
+    while len(conformes) < n_conforme_target and attempts < max_attempts:
         record = generate_record_conforme()
         record["conformity"] = check_conformity(record)
-        records.append(record)
+        if record["conformity"] == "conforme":
+            conformes.append(record)
+        attempts += 1
 
-    for _ in range(n_random):
+    attempts = 0
+    while len(nao_conformes) < n_nao_conforme_target and attempts < max_attempts:
         record = generate_record_random()
         record["conformity"] = check_conformity(record)
-        records.append(record)
+        if record["conformity"] == "nao_conforme":
+            nao_conformes.append(record)
+        attempts += 1
 
+    records = conformes + nao_conformes
     random.shuffle(records)
     return records
 
@@ -402,7 +429,7 @@ def save_csv(records, filepath):
 
 def main():
     """Ponto de entrada: gera dataset e exibe estatísticas."""
-    records = generate_dataset(n=1000, target_conforme_ratio=0.50)
+    records = generate_dataset(n=2000, target_conforme_ratio=0.50)
 
     total = len(records)
     conformes = sum(1 for r in records if r["conformity"] == "conforme")
