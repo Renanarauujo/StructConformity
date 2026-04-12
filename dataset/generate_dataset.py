@@ -559,6 +559,111 @@ def generate_record_conforme():
     }
 
 
+def _base_conforme_seed():
+    """Retorna um registro conforme base para ser pertubado por geradores dirigidos."""
+    for _ in range(50):
+        rec = generate_record_conforme()
+        if check_conformity(rec) == "conforme":
+            return rec
+    return rec  # fallback mesmo se borderline falhar
+
+
+def generate_fail_cover():
+    rec = _base_conforme_seed()
+    rec["cover"] = random.choice([c for c in COVER_OPTIONS if c < MIN_COVER_CM])
+    return rec
+
+
+def generate_fail_fck():
+    rec = _base_conforme_seed()
+    rec["fck"] = random.choice([f for f in FCK_OPTIONS if f < MIN_FCK_MPA])
+    return rec
+
+
+def generate_fail_geometry():
+    rec = _base_conforme_seed()
+    if rec["element_type"] == "beam":
+        rec["dim_a"] = random.choice([w for w in DIM_A_OPTIONS if w < MIN_BEAM_WIDTH_CM])
+    else:
+        rec["dim_a"] = random.choice([w for w in DIM_A_OPTIONS if w < MIN_COLUMN_WIDTH_CM])
+    return rec
+
+
+def generate_fail_quantity():
+    rec = _base_conforme_seed()
+    rec["main_rebar_quantity"] = random.randint(1, MIN_REBAR_QUANTITY - 1)
+    return rec
+
+
+def generate_fail_stirrup_diam():
+    rec = _base_conforme_seed()
+    rec["stirrup_diam"] = random.choice([d for d in STIRRUP_OPTIONS if d < MIN_STIRRUP_DIAM_MM])
+    return rec
+
+
+def generate_fail_main_rebar_diam():
+    return generate_record_invalid_main_diam()
+
+
+def generate_fail_stirrup_spacing():
+    rec = _base_conforme_seed()
+    s_max = max_stirrup_spacing(rec["element_type"], rec["dim_a"], rec["dim_b"], rec["main_rebar_diam"])
+    # Espacamento claramente acima do limite
+    rec["stirrup_spacing"] = round(random.uniform(s_max + 1.0, s_max + 10.0), 1)
+    return rec
+
+
+def generate_fail_rho_low():
+    """Reduz qty para que rho fique abaixo do minimo."""
+    rec = _base_conforme_seed()
+    # Menor bitola permitida + quantidade minima tende a render rho baixo
+    if rec["element_type"] == "beam":
+        rec["main_rebar_diam"] = MIN_MAIN_REBAR_DIAM_BEAM_MM
+    else:
+        rec["main_rebar_diam"] = MIN_MAIN_REBAR_DIAM_COLUMN_MM
+    rec["main_rebar_quantity"] = MIN_REBAR_QUANTITY
+    # Aumenta Ac (secao grande) para derrubar rho
+    rec["dim_a"] = max(rec["dim_a"], 40)
+    rec["dim_b"] = max(rec["dim_b"], 80)
+    return rec
+
+
+def generate_fail_rho_high():
+    """Aumenta qty e bitola ate rho passar do maximo, sem violar geometria."""
+    rec = _base_conforme_seed()
+    # Secao pequena + bitola grande + muitas barras
+    rec["main_rebar_diam"] = 25.0
+    rec["main_rebar_quantity"] = random.randint(12, 20)
+    return rec
+
+
+def generate_fail_geometric_spacing():
+    """Muitas barras em secao pequena: geometria nao acomoda."""
+    rec = _base_conforme_seed()
+    if rec["element_type"] == "beam":
+        rec["dim_a"] = random.choice([w for w in DIM_A_OPTIONS if 12 <= w <= 20])
+    else:
+        rec["dim_a"] = random.choice([w for w in DIM_A_OPTIONS if 20 <= w <= 25])
+    rec["main_rebar_diam"] = 25.0
+    rec["main_rebar_quantity"] = random.randint(14, 20)
+    return rec
+
+
+# Mapa regra -> gerador (para distribuir cota igual por regra)
+RULE_GENERATORS = [
+    ("cobrimento_insuficiente",    generate_fail_cover),
+    ("fck_invalido",               generate_fail_fck),
+    ("geometria_invalida",         generate_fail_geometry),
+    ("quantidade_insuficiente",    generate_fail_quantity),
+    ("stirrup_diam_invalido",      generate_fail_stirrup_diam),
+    ("main_rebar_diam_invalido",   generate_fail_main_rebar_diam),
+    ("stirrup_spacing_excedido",   generate_fail_stirrup_spacing),
+    ("rho_insuficiente",           generate_fail_rho_low),
+    ("rho_excedido",               generate_fail_rho_high),
+    ("espacamento_insuficiente",   generate_fail_geometric_spacing),
+]
+
+
 def generate_record_invalid_main_diam():
     """
     Registro com bitola longitudinal abaixo do minimo normativo:
@@ -643,11 +748,10 @@ def generate_record_borderline():
 # Pipeline do dataset
 # ---------------------------------------------------------------------------
 def generate_dataset(
-    n=2000,
+    n=10000,
     target_conforme_ratio=0.50,
     borderline_ratio=0.30,
-    phi42_ratio=0.30,
-    max_attempts_factor=10,
+    max_attempts_factor=15,
 ):
     """
     Gera o dataset balanceado conforme/nao_conforme.
@@ -683,19 +787,23 @@ def generate_dataset(
             conformes.append(rec)
         attempts += 1
 
-    # Nao conformes: parcela dedicada a violacoes com phi 4,2 (hard negatives)
-    n_phi42 = int(n_nc_target * phi42_ratio)
-    attempts = 0
-    while sum(1 for r in nao_conformes) < n_phi42 and attempts < max_attempts:
-        rec = generate_record_invalid_main_diam()
-        rec["conformity"] = check_conformity(rec)
-        if rec["conformity"] == "nao_conforme":
-            nao_conformes.append(rec)
-        attempts += 1
+    # Nao-conformes: cota igual por regra via geradores dirigidos
+    per_rule = n_nc_target // len(RULE_GENERATORS)
+    for reason, generator in RULE_GENERATORS:
+        got = 0
+        attempts = 0
+        while got < per_rule and attempts < n * max_attempts_factor:
+            rec = generator()
+            detail = check_conformity_detailed(rec)
+            if detail["status"] == "nao_conforme":
+                rec["conformity"] = "nao_conforme"
+                nao_conformes.append(rec)
+                got += 1
+            attempts += 1
 
-    # Restante via random
+    # Completa saldo via random (se algum bucket faltou)
     attempts = 0
-    while len(nao_conformes) < n_nc_target and attempts < max_attempts:
+    while len(nao_conformes) < n_nc_target and attempts < n * max_attempts_factor:
         rec = generate_record_random()
         rec["conformity"] = check_conformity(rec)
         if rec["conformity"] == "nao_conforme":
@@ -725,7 +833,7 @@ def save_csv(records, filepath):
 
 def main():
     """Gera dataset e exibe estatisticas."""
-    records = generate_dataset(n=6000, target_conforme_ratio=0.50)
+    records = generate_dataset(n=10000, target_conforme_ratio=0.50)
 
     total = len(records)
     conformes = sum(1 for r in records if r["conformity"] == "conforme")
