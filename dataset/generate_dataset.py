@@ -133,6 +133,77 @@ def is_multiple_of_5(value, tol=1e-6):
     return abs(value - round(value / 5.0) * 5.0) < tol
 
 
+# Espaçamento mínimo absoluto entre barras longitudinais (cm)
+# (NBR 6118, 18.3.2.2 — adota-se max(φ_long, 2 cm) como simplificação)
+MIN_BAR_SPACING_CM = 2.0
+MAX_REBAR_LAYERS = 4
+
+
+def validate_rebar_spacing(
+    element_type, dim_a, dim_b, cover,
+    stirrup_diam, main_rebar_diam, main_rebar_quantity,
+):
+    """
+    Verifica se as barras longitudinais cabem fisicamente na seção,
+    testando distribuições de 1 a 4 camadas.
+
+    Critérios:
+      bw = min(dim_a, dim_b)
+      bw_util = bw - 2 * (cover + stirrup_diam_cm)
+      s_min = max(main_rebar_diam_cm, 2.0)
+      Para cada layers em [1..4]:
+          n = ceil(qty / layers)
+          Se n == 1 → válido (única barra)
+          Senão: s_real = (bw_util - n * diam_cm) / (n - 1) >= s_min
+
+    Retorna dict com:
+      status        : "conforme" | "nao_conforme"
+      bw            : menor dimensão da seção (cm)
+      bw_util       : largura útil (cm)
+      layers_used   : número de camadas adotado (ou None)
+      n_per_layer   : barras por camada (ou None)
+      s_real        : espaçamento calculado (cm, ou None)
+    """
+    stirrup_diam_cm = stirrup_diam / 10.0
+    main_rebar_diam_cm = main_rebar_diam / 10.0
+
+    bw = min(dim_a, dim_b)
+    bw_util = bw - 2.0 * (cover + stirrup_diam_cm)
+
+    result = {
+        "status": "nao_conforme",
+        "bw": bw,
+        "bw_util": bw_util,
+        "layers_used": None,
+        "n_per_layer": None,
+        "s_real": None,
+    }
+
+    # Largura útil precisa acomodar ao menos uma barra
+    if bw_util <= 0 or main_rebar_diam_cm > bw_util:
+        return result
+
+    s_min = max(main_rebar_diam_cm, MIN_BAR_SPACING_CM)
+
+    for layers in range(1, MAX_REBAR_LAYERS + 1):
+        n = math.ceil(main_rebar_quantity / layers)
+
+        if n == 1:
+            result.update(
+                status="conforme", layers_used=layers, n_per_layer=n, s_real=None,
+            )
+            return result
+
+        s_real = (bw_util - n * main_rebar_diam_cm) / (n - 1)
+        if s_real >= s_min:
+            result.update(
+                status="conforme", layers_used=layers, n_per_layer=n, s_real=s_real,
+            )
+            return result
+
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Regras de conformidade
 # ---------------------------------------------------------------------------
@@ -202,6 +273,15 @@ def check_conformity(row):
 
     # Regra 11 — Taxa mínima de armadura em PILARES (NBR 6118, 17.3.5.3.1)
     if element_type == "column" and rho < MIN_RHO_COLUMN_PCT:
+        return "nao_conforme"
+
+    # Regra 12 — Espaçamento útil: as barras cabem fisicamente na seção?
+    #            (testa 1 a 4 camadas respeitando bw_util e s_min)
+    spacing_check = validate_rebar_spacing(
+        element_type, dim_a, dim_b, cover,
+        stirrup_diam, main_rebar_diam, main_rebar_quantity,
+    )
+    if spacing_check["status"] != "conforme":
         return "nao_conforme"
 
     return "conforme"
