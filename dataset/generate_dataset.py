@@ -638,15 +638,38 @@ def generate_fail_rho_high():
 
 
 def generate_fail_geometric_spacing():
-    """Muitas barras em secao pequena: geometria nao acomoda."""
-    rec = _base_conforme_seed()
-    if rec["element_type"] == "beam":
-        rec["dim_a"] = random.choice([w for w in DIM_A_OPTIONS if 12 <= w <= 20])
+    """
+    Muitas barras PEQUENAS numa secao estreita: a geometria nao acomoda
+    mas rho permanece dentro dos limites (para que a falha seja de fato
+    geometrica, nao de taxa de armadura).
+    """
+    element_type = random.choice(ELEMENT_TYPES)
+    if element_type == "beam":
+        dim_a = random.choice([w for w in DIM_A_OPTIONS if 12 <= w <= 15])
+        min_b = max(20, dim_a * 2)
+        max_b = min(120, dim_a * 4)
+        dim_b_opts = [h for h in DIM_B_OPTIONS if min_b <= h <= max_b]
+        dim_b = random.choice(dim_b_opts) if dim_b_opts else dim_a * 2
+        main_diam = random.choice([8.0, 10.0, 12.5])
     else:
-        rec["dim_a"] = random.choice([w for w in DIM_A_OPTIONS if 20 <= w <= 25])
-    rec["main_rebar_diam"] = 25.0
-    rec["main_rebar_quantity"] = random.randint(14, 20)
-    return rec
+        dim_a = random.choice([w for w in DIM_A_OPTIONS if 19 <= w <= 25])
+        dim_b = random.choice([h for h in DIM_B_OPTIONS if 20 <= h <= 30])
+        main_diam = random.choice([10.0, 12.5, 16.0])
+
+    cover = random.choice([c for c in COVER_OPTIONS if c >= MIN_COVER_CM])
+    fck = random.choice([f for f in FCK_OPTIONS if f >= MIN_FCK_MPA])
+    stirrup_diam = random.choice([5.0, 6.3])
+    main_qty = random.randint(14, 20)
+    s_max = max_stirrup_spacing(element_type, dim_a, dim_b, main_diam)
+    stirrup_spacing = round(random.uniform(5, max(5.1, s_max)), 1)
+
+    return {
+        "element_type": element_type,
+        "dim_a": dim_a, "dim_b": dim_b, "dim_c": generate_dim_c(element_type),
+        "fck": fck, "cover": cover,
+        "main_rebar_diam": main_diam, "main_rebar_quantity": main_qty,
+        "stirrup_diam": stirrup_diam, "stirrup_spacing": stirrup_spacing,
+    }
 
 
 # Mapa regra -> gerador (para distribuir cota igual por regra)
