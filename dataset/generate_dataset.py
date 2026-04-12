@@ -1,27 +1,28 @@
 """
-Gerador de dataset sintético para o StructConformity.
+Gerador de dataset sintetico para o StructConformity.
 
-Gera registros de elementos estruturais (viga, pilar) com propriedades
-variando dentro e fora dos limites da NBR 6118. Cada registro é
-classificado como 'conforme' ou 'nao_conforme' com base nas 9 regras
-extraídas da norma.
+Gera registros de vigas e pilares com propriedades variando dentro e fora
+dos limites da NBR 6118. Cada registro e classificado como 'conforme' ou
+'nao_conforme' com base em regras geometricas e normativas.
 
-Schema de features:
-    element_type          : "beam" | "column"
-    dim_a (cm)            : largura da seção
-    dim_b (cm)            : altura da seção
-    dim_c (cm)            : comprimento (viga) ou altura em Z (pilar)
-    fck (MPa)             : resistência característica do concreto
-    cover (cm)            : cobrimento
-    main_rebar_diam (mm)  : bitola longitudinal
-    main_rebar_quantity   : quantidade de barras longitudinais
-    stirrup_diam (mm)     : bitola do estribo
-    stirrup_spacing (cm)  : espaçamento dos estribos
-    conformity            : 'conforme' | 'nao_conforme'
+Diferencas desta versao:
+- Distribuicao perimetral de barras para PILARES (4 faces, nao linear).
+- Espacamento minimo entre barras inclui criterio do agregado graudo
+  (NBR 6118, 18.3.2.2): s_min = max(phi, 2 cm, 1.2 * diam agregado).
+- Estribos de pilar seguem criterio especifico:
+    s_max = min(20 cm, menor dimensao, 12 * phi_longitudinal).
+- `check_conformity` retorna status + motivo (reason) para debugging.
+- Regra de "multiplo de 5 cm" rebaixada a alerta construtivo (nao reprova).
+- Geracao inclui casos limitrofes (proximos dos limites) para melhorar ML.
+- Cap fisico substituido por validacao geometrica real
+  (reamostragem por `validate_rebar_spacing_*`).
 
-Premissa de domínio: comprimento de cada barra longitudinal = dim_c.
+Schema das features (10):
+    element_type, dim_a, dim_b, dim_c, fck, cover,
+    main_rebar_diam, main_rebar_quantity, stirrup_diam, stirrup_spacing
 
-Saída: structural_conformity.csv
+Premissa de dominio: comprimento de cada barra longitudinal = dim_c.
+Saida: structural_conformity.csv
 """
 
 import math
@@ -35,183 +36,283 @@ import os
 random.seed(42)
 
 # ---------------------------------------------------------------------------
-# Constantes da NBR 6118 — limiares de conformidade
+# Constantes NBR 6118 / boas praticas
 # ---------------------------------------------------------------------------
+# Geral
 MIN_COVER_CM = 2.5
-MIN_STIRRUP_DIAM_MM = 5.0
-MAX_STIRRUP_SPACING_FACTOR = 0.6
-MAX_STIRRUP_SPACING_ABS_CM = 30.0
 MIN_FCK_MPA = 20.0
+
+# Secao minima por tipo
 MIN_BEAM_WIDTH_CM = 12.0
 MIN_COLUMN_WIDTH_CM = 19.0
+
+# Estribos
+MIN_STIRRUP_DIAM_MM = 5.0
+MAX_STIRRUP_DIAM_MM = 10.0  # acima de 10 e inviavel dobrar em obra
+#   Viga: s_max_beam = min(0.6 * dim_b, 30)
+MAX_STIRRUP_SPACING_BEAM_FACTOR = 0.6
+MAX_STIRRUP_SPACING_BEAM_ABS_CM = 30.0
+#   Pilar: s_max_col = min(20 cm, menor dim, 12 * phi_long)
+MAX_STIRRUP_SPACING_COLUMN_ABS_CM = 20.0
+STIRRUP_SPACING_COLUMN_PHI_FACTOR = 12.0
+
+# Armadura longitudinal
 MIN_REBAR_QUANTITY = 4
 
-# Taxa de armadura maxima (rho = As/Ac, em %)
-# Beam: 4% (NBR 6118, 17.3.5.3.2)
-# Column: 8% (NBR 6118, 17.3.5.3.2 - inclui regioes de emenda)
-MAX_RHO_BEAM_PCT = 4.0
-MAX_RHO_COLUMN_PCT = 8.0
-
-# Taxa minima de armadura em PILARES (rho = As/Ac, em %)
-MIN_RHO_COLUMN_PCT = 0.4
-
-# Caps fisicos para o gerador random (evita combinacoes que nao cabem na secao)
-PHYSICAL_CAP_RHO_BEAM_PCT = 6.0
-PHYSICAL_CAP_RHO_COLUMN_PCT = 10.0
-
-# Bitola maxima de estribo (acima de 10mm e muito dificil de dobrar/armar)
-MAX_STIRRUP_DIAM_MM = 10.0
-
-# Taxa mínima de armadura longitudinal em vigas (ρmin = As/Ac, em %)
-# Tabela NBR 6118, truncada em fck = 50 MPa.
-RHO_MIN_BY_FCK = {
+#   Taxa minima em vigas (rho = As/Ac, em %) — NBR 6118, tabela por fck
+RHO_MIN_BEAM_BY_FCK = {
     20: 0.150, 25: 0.150, 30: 0.150, 35: 0.164,
     40: 0.179, 45: 0.194, 50: 0.208,
 }
+#   Taxa maxima/minima por tipo
+MAX_RHO_BEAM_PCT = 4.0
+MAX_RHO_COLUMN_PCT = 8.0
+MIN_RHO_COLUMN_PCT = 0.4
+
+# Espacamento entre barras (NBR 6118, 18.3.2.2)
+MAX_AGGREGATE_MM = 19  # brita 1
+MIN_BAR_SPACING_ABS_CM = 2.0
+MIN_BAR_SPACING_AGG_FACTOR = 1.2
+MAX_REBAR_LAYERS_BEAM = 4  # camadas em vigas
 
 # ---------------------------------------------------------------------------
-# Tipos de elementos e seus ranges de geração
+# Opcoes discretas
 # ---------------------------------------------------------------------------
 ELEMENT_TYPES = ["beam", "column"]
 
-# Dimensões de seção (cm) — múltiplos de 5
-DIM_A_OPTIONS = list(range(10, 85, 5))
-DIM_B_OPTIONS = list(range(15, 125, 5))
+DIM_A_OPTIONS = list(range(10, 85, 5))     # cm
+DIM_B_OPTIONS = list(range(15, 125, 5))    # cm
 
-# Classes de concreto: inclui 10 e 15 propositalmente para gerar violações
 FCK_OPTIONS = [10, 15, 20, 25, 30, 35, 40, 45, 50]
-
-# Cobrimento (cm) — múltiplos de 0.5
 COVER_OPTIONS = [i * 0.5 for i in range(0, 10)]
 
-# Bitolas comerciais (mm)
 REBAR_OPTIONS = [4.2, 5.0, 6.3, 8.0, 10.0, 12.5, 16.0, 20.0, 22.0, 25.0]
-# Estribos: restritos a <= 10mm (bitolas maiores sao impraticaveis de dobrar)
 STIRRUP_OPTIONS = [d for d in REBAR_OPTIONS if d <= MAX_STIRRUP_DIAM_MM]
 
-# dim_c por tipo (cm, múltiplos de 5)
 DIM_C_BEAM_OPTIONS = list(range(100, 1205, 5))
 DIM_C_COLUMN_OPTIONS = list(range(250, 405, 5))
 
-# Range contínuo de espaçamento de estribos (gera valores não-múltiplos de 5
-# para alimentar a regra de múltiplo de 5)
-STIRRUP_SPACING_RANGE = (5, 35)
+STIRRUP_SPACING_RANGE = (5, 35)  # cm (continuo)
 
-# Quantidade de barras longitudinais
 REBAR_QUANTITY_RANGE_RANDOM = (2, 20)
 REBAR_QUANTITY_RANGE_CONFORME = (MIN_REBAR_QUANTITY, 20)
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Helpers numericos
 # ---------------------------------------------------------------------------
 def random_in_range(low, high, decimals=1):
-    """Gera valor aleatório no intervalo [low, high] arredondado."""
+    """Valor aleatorio no intervalo [low, high] arredondado."""
     return round(random.uniform(low, high), decimals)
 
 
-def pick_rebar():
-    """Escolhe uma bitola comercial aleatória."""
-    return random.choice(REBAR_OPTIONS)
-
-
 def bar_area_cm2(diam_mm):
-    """Área da seção de uma barra (cm²) dada a bitola em mm."""
-    # diam_mm / 10 → cm; raio = diam_cm / 2 → diam_mm / 20
+    """Area (cm^2) da secao de uma barra dada a bitola em mm."""
     return math.pi * (diam_mm / 20.0) ** 2
 
 
 def rho_percent(main_rebar_diam, main_rebar_quantity, dim_a, dim_b):
-    """Taxa de armadura ρ = As/Ac em porcentagem."""
+    """Taxa de armadura rho = As/Ac, em %."""
     as_total = main_rebar_quantity * bar_area_cm2(main_rebar_diam)
     ac = dim_a * dim_b
     return (as_total / ac) * 100.0
 
 
 def is_multiple_of_5(value, tol=1e-6):
-    """Testa se um float é múltiplo de 5 dentro de uma tolerância."""
+    """Testa se um float e multiplo de 5 (dentro de tolerancia)."""
     return abs(value - round(value / 5.0) * 5.0) < tol
 
 
-# Espaçamento mínimo absoluto entre barras longitudinais (cm)
-# (NBR 6118, 18.3.2.2 — adota-se max(φ_long, 2 cm) como simplificação)
-MIN_BAR_SPACING_CM = 2.0
-MAX_REBAR_LAYERS = 4
+def min_bar_spacing_cm(main_rebar_diam_mm):
+    """
+    Espacamento minimo entre barras longitudinais (NBR 6118, 18.3.2.2).
+
+        s_min = max(phi_barra, 2.0 cm, 1.2 * diam_agregado)
+    """
+    phi_cm = main_rebar_diam_mm / 10.0
+    agg_cm = MAX_AGGREGATE_MM / 10.0
+    return max(phi_cm, MIN_BAR_SPACING_ABS_CM, MIN_BAR_SPACING_AGG_FACTOR * agg_cm)
 
 
-def validate_rebar_spacing(
-    element_type, dim_a, dim_b, cover,
-    stirrup_diam, main_rebar_diam, main_rebar_quantity,
+# ---------------------------------------------------------------------------
+# Validacoes geometricas
+# ---------------------------------------------------------------------------
+def _face_util(dim_cm, cover_cm, stirrup_diam_cm):
+    """Comprimento util de uma face = dim - 2*(cover + phi_estribo)."""
+    return dim_cm - 2.0 * (cover_cm + stirrup_diam_cm)
+
+
+def _fits_in_face(face_util_cm, n_bars, phi_main_cm, s_min_cm):
+    """
+    Testa se n_bars cabem numa face com folga >= s_min.
+
+    Se n == 1 -> basta caber a barra.
+    """
+    if n_bars < 1:
+        return False, None
+    if phi_main_cm > face_util_cm:
+        return False, None
+    if n_bars == 1:
+        return True, None
+    s_real = (face_util_cm - n_bars * phi_main_cm) / (n_bars - 1)
+    return s_real >= s_min_cm, s_real
+
+
+def validate_rebar_spacing_beam(
+    dim_a, dim_b, cover, stirrup_diam, main_rebar_diam, main_rebar_quantity,
 ):
     """
-    Verifica se as barras longitudinais cabem fisicamente na seção,
-    testando distribuições de 1 a 4 camadas.
+    Viga: distribuicao em camadas horizontais na base.
 
-    Critérios:
-      bw = min(dim_a, dim_b)
-      bw_util = bw - 2 * (cover + stirrup_diam_cm)
-      s_min = max(main_rebar_diam_cm, 2.0)
-      Para cada layers em [1..4]:
-          n = ceil(qty / layers)
-          Se n == 1 → válido (única barra)
-          Senão: s_real = (bw_util - n * diam_cm) / (n - 1) >= s_min
-
-    Retorna dict com:
-      status        : "conforme" | "nao_conforme"
-      bw            : menor dimensão da seção (cm)
-      bw_util       : largura útil (cm)
-      layers_used   : número de camadas adotado (ou None)
-      n_per_layer   : barras por camada (ou None)
-      s_real        : espaçamento calculado (cm, ou None)
+    Testa 1 a MAX_REBAR_LAYERS_BEAM camadas; retorna conforme se alguma
+    camada acomodar a quantidade total respeitando espacamento minimo.
+    Usa bw = min(dim_a, dim_b) como base da viga (caso canto).
     """
+    phi_main_cm = main_rebar_diam / 10.0
     stirrup_diam_cm = stirrup_diam / 10.0
-    main_rebar_diam_cm = main_rebar_diam / 10.0
-
     bw = min(dim_a, dim_b)
-    bw_util = bw - 2.0 * (cover + stirrup_diam_cm)
+    bw_util = _face_util(bw, cover, stirrup_diam_cm)
 
     result = {
         "status": "nao_conforme",
-        "bw": bw,
-        "bw_util": bw_util,
-        "layers_used": None,
-        "n_per_layer": None,
-        "s_real": None,
+        "reason": "espacamento_insuficiente",
+        "bw": bw, "bw_util": bw_util,
+        "layers_used": None, "n_per_layer": None, "s_real": None,
     }
 
-    # Largura útil precisa acomodar ao menos uma barra
-    if bw_util <= 0 or main_rebar_diam_cm > bw_util:
+    if bw_util <= 0:
+        result["reason"] = "geometria_invalida"
         return result
 
-    s_min = max(main_rebar_diam_cm, MIN_BAR_SPACING_CM)
+    s_min = min_bar_spacing_cm(main_rebar_diam)
 
-    for layers in range(1, MAX_REBAR_LAYERS + 1):
+    for layers in range(1, MAX_REBAR_LAYERS_BEAM + 1):
         n = math.ceil(main_rebar_quantity / layers)
-
-        if n == 1:
-            result.update(
-                status="conforme", layers_used=layers, n_per_layer=n, s_real=None,
-            )
-            return result
-
-        s_real = (bw_util - n * main_rebar_diam_cm) / (n - 1)
-        if s_real >= s_min:
-            result.update(
-                status="conforme", layers_used=layers, n_per_layer=n, s_real=s_real,
-            )
-            return result
+        fits, s_real = _fits_in_face(bw_util, n, phi_main_cm, s_min)
+        if fits:
+            return {
+                "status": "conforme",
+                "reason": None,
+                "bw": bw, "bw_util": bw_util,
+                "layers_used": layers, "n_per_layer": n, "s_real": s_real,
+            }
 
     return result
 
 
-# ---------------------------------------------------------------------------
-# Regras de conformidade
-# ---------------------------------------------------------------------------
-def check_conformity(row):
+def validate_rebar_spacing_column(
+    dim_a, dim_b, cover, stirrup_diam, main_rebar_diam, main_rebar_quantity,
+):
     """
-    Aplica as 9 regras da NBR 6118 e retorna 'conforme' ou 'nao_conforme'.
+    Pilar: distribuicao perimetral em 4 faces.
 
-    Basta uma violação para ser não conforme.
+    Considera grid retangular (n_a barras nas faces paralelas a dim_a,
+    n_b barras nas faces paralelas a dim_b). Total = 2*(n_a+n_b) - 4
+    (cantos compartilhados). Valida espacamento em cada direcao.
+
+    Retorna conforme se existir algum par (n_a, n_b) com:
+        2*(n_a + n_b) - 4 >= main_rebar_quantity
+        espacamento em ambas direcoes >= s_min
+    """
+    phi_main_cm = main_rebar_diam / 10.0
+    stirrup_diam_cm = stirrup_diam / 10.0
+
+    face_a_util = _face_util(dim_a, cover, stirrup_diam_cm)
+    face_b_util = _face_util(dim_b, cover, stirrup_diam_cm)
+
+    result = {
+        "status": "nao_conforme",
+        "reason": "espacamento_insuficiente",
+        "face_a_util": face_a_util, "face_b_util": face_b_util,
+        "n_a": None, "n_b": None, "s_a": None, "s_b": None,
+    }
+
+    if face_a_util <= 0 or face_b_util <= 0:
+        result["reason"] = "geometria_invalida"
+        return result
+    if main_rebar_quantity < 4:
+        result["reason"] = "quantidade_insuficiente"
+        return result
+
+    s_min = min_bar_spacing_cm(main_rebar_diam)
+
+    # Busca par (n_a, n_b) com total >= qty (permite margem de 1 barra)
+    best = None
+    for n_a in range(2, main_rebar_quantity + 1):
+        for n_b in range(2, main_rebar_quantity + 1):
+            total = 2 * (n_a + n_b) - 4
+            if total < main_rebar_quantity:
+                continue
+            fits_a, s_a = _fits_in_face(face_a_util, n_a, phi_main_cm, s_min)
+            fits_b, s_b = _fits_in_face(face_b_util, n_b, phi_main_cm, s_min)
+            if fits_a and fits_b:
+                candidate = {
+                    "status": "conforme", "reason": None,
+                    "face_a_util": face_a_util, "face_b_util": face_b_util,
+                    "n_a": n_a, "n_b": n_b, "s_a": s_a, "s_b": s_b,
+                    "total_bars": total,
+                }
+                # Prefere total igual a qty (sem excesso)
+                if best is None or abs(total - main_rebar_quantity) < abs(best["total_bars"] - main_rebar_quantity):
+                    best = candidate
+
+    return best if best else result
+
+
+def validate_rebar_spacing(
+    element_type, dim_a, dim_b, cover, stirrup_diam, main_rebar_diam, main_rebar_quantity,
+):
+    """Dispatcher: chama a validacao de viga ou pilar conforme tipo."""
+    if element_type == "beam":
+        return validate_rebar_spacing_beam(
+            dim_a, dim_b, cover, stirrup_diam, main_rebar_diam, main_rebar_quantity,
+        )
+    return validate_rebar_spacing_column(
+        dim_a, dim_b, cover, stirrup_diam, main_rebar_diam, main_rebar_quantity,
+    )
+
+
+def max_stirrup_spacing(element_type, dim_a, dim_b, main_rebar_diam):
+    """
+    Espacamento maximo de estribos segundo NBR 6118.
+
+    Viga:  s_max = min(0.6 * dim_b, 30 cm)
+    Pilar: s_max = min(20 cm, menor_dim, 12 * phi_long_cm)
+    """
+    if element_type == "beam":
+        return min(dim_b * MAX_STIRRUP_SPACING_BEAM_FACTOR, MAX_STIRRUP_SPACING_BEAM_ABS_CM)
+    phi_long_cm = main_rebar_diam / 10.0
+    return min(
+        MAX_STIRRUP_SPACING_COLUMN_ABS_CM,
+        min(dim_a, dim_b),
+        STIRRUP_SPACING_COLUMN_PHI_FACTOR * phi_long_cm,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Regras de conformidade — retornam (status, reason)
+# ---------------------------------------------------------------------------
+REASONS = (
+    "cobrimento_insuficiente",
+    "stirrup_spacing_excedido",
+    "stirrup_diam_invalido",
+    "fck_invalido",
+    "geometria_invalida",
+    "quantidade_insuficiente",
+    "rho_insuficiente",
+    "rho_excedido",
+    "espacamento_insuficiente",
+)
+
+
+def check_conformity_detailed(row):
+    """
+    Aplica as regras e retorna dict com status, reason e flags.
+
+    - status: 'conforme' | 'nao_conforme'
+    - reason: None ou uma das strings de REASONS
+    - alerta_construtivo: True se stirrup_spacing nao for multiplo de 5
+      (nao reprova; apenas sinaliza).
     """
     element_type = row["element_type"]
     dim_a = row["dim_a"]
@@ -223,98 +324,90 @@ def check_conformity(row):
     stirrup_diam = row["stirrup_diam"]
     stirrup_spacing = row["stirrup_spacing"]
 
-    # Regra 1 — Cobrimento mínimo >= 2.5 cm
+    def fail(reason):
+        return {"status": "nao_conforme", "reason": reason, "alerta_construtivo": False}
+
+    # Regra 1 — cobrimento
     if cover < MIN_COVER_CM:
-        return "nao_conforme"
+        return fail("cobrimento_insuficiente")
 
-    # Regra 2 — Espaçamento máximo de estribos: <= min(0.6 * dim_b, 30)
-    max_spacing = min(dim_b * MAX_STIRRUP_SPACING_FACTOR, MAX_STIRRUP_SPACING_ABS_CM)
-    if stirrup_spacing > max_spacing:
-        return "nao_conforme"
-
-    # Regra 3 — Diâmetro mínimo de estribo >= 5.0 mm
-    if stirrup_diam < MIN_STIRRUP_DIAM_MM:
-        return "nao_conforme"
-
-    # Regra 4 — Espaçamento de estribo deve ser múltiplo de 5 cm
-    #           (padronização construtiva; evita cortes irregulares em obra)
-    if not is_multiple_of_5(stirrup_spacing):
-        return "nao_conforme"
-
-    # Regra 5 — fck mínimo >= 20 MPa
+    # Regra 2 — fck
     if fck < MIN_FCK_MPA:
-        return "nao_conforme"
+        return fail("fck_invalido")
 
-    # Regra 6 — Largura mínima de vigas >= 12 cm
+    # Regra 3 — geometria minima por tipo
     if element_type == "beam" and dim_a < MIN_BEAM_WIDTH_CM:
-        return "nao_conforme"
-
-    # Regra 7 — Largura mínima de pilares >= 19 cm
+        return fail("geometria_invalida")
     if element_type == "column" and dim_a < MIN_COLUMN_WIDTH_CM:
-        return "nao_conforme"
+        return fail("geometria_invalida")
 
-    # Regra 8 — Quantidade mínima de barras longitudinais >= 4
+    # Regra 4 — quantidade minima de barras
     if main_rebar_quantity < MIN_REBAR_QUANTITY:
-        return "nao_conforme"
+        return fail("quantidade_insuficiente")
 
-    # Regra 9 — Taxa mínima de armadura em VIGAS (ρ >= ρmin(fck), NBR 6118)
+    # Regra 5 — estribo bitola minima
+    if stirrup_diam < MIN_STIRRUP_DIAM_MM:
+        return fail("stirrup_diam_invalido")
+
+    # Regra 6 — estribo espacamento maximo (criterio por tipo)
+    s_max = max_stirrup_spacing(element_type, dim_a, dim_b, main_rebar_diam)
+    if stirrup_spacing > s_max:
+        return fail("stirrup_spacing_excedido")
+
+    # Regra 7 — taxa de armadura
     rho = rho_percent(main_rebar_diam, main_rebar_quantity, dim_a, dim_b)
-    if element_type == "beam" and fck in RHO_MIN_BY_FCK:
-        if rho < RHO_MIN_BY_FCK[fck]:
-            return "nao_conforme"
+    if element_type == "beam":
+        rho_min = RHO_MIN_BEAM_BY_FCK.get(fck, 0.0)
+        if rho < rho_min:
+            return fail("rho_insuficiente")
+        if rho > MAX_RHO_BEAM_PCT:
+            return fail("rho_excedido")
+    else:  # column
+        if rho < MIN_RHO_COLUMN_PCT:
+            return fail("rho_insuficiente")
+        if rho > MAX_RHO_COLUMN_PCT:
+            return fail("rho_excedido")
 
-    # Regra 10 — Taxa máxima de armadura
-    #   Viga:  ρ <= 4%  (NBR 6118, 17.3.5.3.2)
-    #   Pilar: ρ <= 8%  (limite incluindo regiões de emenda)
-    if element_type == "beam" and rho > MAX_RHO_BEAM_PCT:
-        return "nao_conforme"
-    if element_type == "column" and rho > MAX_RHO_COLUMN_PCT:
-        return "nao_conforme"
-
-    # Regra 11 — Taxa mínima de armadura em PILARES (NBR 6118, 17.3.5.3.1)
-    if element_type == "column" and rho < MIN_RHO_COLUMN_PCT:
-        return "nao_conforme"
-
-    # Regra 12 — Espaçamento útil: as barras cabem fisicamente na seção?
-    #            (testa 1 a 4 camadas respeitando bw_util e s_min)
-    spacing_check = validate_rebar_spacing(
+    # Regra 8 — espacamento geometrico real (cabem as barras?)
+    geom = validate_rebar_spacing(
         element_type, dim_a, dim_b, cover,
         stirrup_diam, main_rebar_diam, main_rebar_quantity,
     )
-    if spacing_check["status"] != "conforme":
-        return "nao_conforme"
+    if geom["status"] != "conforme":
+        return fail(geom.get("reason", "espacamento_insuficiente"))
 
-    return "conforme"
+    # Conforme. Sinaliza alerta construtivo se spacing nao for multiplo de 5
+    alerta = not is_multiple_of_5(stirrup_spacing)
+    return {"status": "conforme", "reason": None, "alerta_construtivo": alerta}
+
+
+def check_conformity(row):
+    """Wrapper compativel com o pipeline: retorna apenas a string de status."""
+    return check_conformity_detailed(row)["status"]
 
 
 # ---------------------------------------------------------------------------
-# Geradores de dimensões por tipo de elemento
+# Geradores de dimensoes e dim_c
 # ---------------------------------------------------------------------------
 def generate_beam_dimensions():
-    """
-    Gera dim_a (largura) e dim_b (altura) de vigas com proporções realistas.
-
-    Vigas têm altura maior que a largura:
-    - dim_a tipicamente entre 10 e 30 cm
-    - dim_b entre 1.5x e 4x a largura
-    """
+    """dim_a (largura) e dim_b (altura) de viga."""
     dim_a = random.choice([w for w in DIM_A_OPTIONS if 10 <= w <= 30])
     min_b = max(20, dim_a * 2)
     max_b = min(120, dim_a * 4)
-    dim_b_options = [h for h in DIM_B_OPTIONS if min_b <= h <= max_b]
-    dim_b = random.choice(dim_b_options) if dim_b_options else dim_a * 2
+    opts = [h for h in DIM_B_OPTIONS if min_b <= h <= max_b]
+    dim_b = random.choice(opts) if opts else dim_a * 2
     return dim_a, dim_b
 
 
 def generate_column_dimensions():
-    """Gera dim_a e dim_b de pilares (seção quadrada/retangular)."""
+    """dim_a e dim_b de pilar."""
     dim_a = random.choice(DIM_A_OPTIONS)
     dim_b = random.choice(DIM_B_OPTIONS)
     return dim_a, dim_b
 
 
 def generate_dim_c(element_type):
-    """dim_c = comprimento (viga) ou altura em Z (pilar)."""
+    """Comprimento (viga) ou altura Z (pilar), em cm."""
     if element_type == "beam":
         return random.choice(DIM_C_BEAM_OPTIONS)
     return random.choice(DIM_C_COLUMN_OPTIONS)
@@ -323,29 +416,73 @@ def generate_dim_c(element_type):
 # ---------------------------------------------------------------------------
 # Geradores de registros
 # ---------------------------------------------------------------------------
-def generate_record_random():
+def _sample_geometric_combo(element_type, dim_a, dim_b, cover, stirrup_diam, max_tries=200):
     """
-    Gera um registro totalmente aleatório (pode ou não ser conforme).
+    Sorteia (main_rebar_diam, main_rebar_quantity) que passe na validacao
+    geometrica (cabem na secao). Retorna None se nao achar.
+    """
+    long_options = [d for d in REBAR_OPTIONS if d >= 8.0]
+    qty_lo, qty_hi = REBAR_QUANTITY_RANGE_CONFORME
 
-    Aplica cap físico em ρ para evitar combinações impossíveis
-    (ex.: 20 barras de 25mm em seção 10x20 — não caberiam).
-    Reamostra (diam, qty) até ρ ficar abaixo do cap físico.
+    for _ in range(max_tries):
+        diam = random.choice(long_options)
+        qty = random.randint(qty_lo, qty_hi)
+        geom = validate_rebar_spacing(element_type, dim_a, dim_b, cover, stirrup_diam, diam, qty)
+        if geom["status"] == "conforme":
+            return diam, qty
+    return None
+
+
+def _sample_conforme_rebar_combo(element_type, dim_a, dim_b, fck, cover, stirrup_diam, max_tries=300):
+    """
+    Sorteia (diam, qty) que satisfaca simultaneamente:
+      - taxa de armadura (rho_min <= rho <= rho_max)
+      - validacao geometrica
+    """
+    long_options = [d for d in REBAR_OPTIONS if d >= 8.0]
+    qty_lo, qty_hi = REBAR_QUANTITY_RANGE_CONFORME
+
+    if element_type == "beam":
+        rho_min = RHO_MIN_BEAM_BY_FCK.get(fck, 0.0)
+        rho_max = MAX_RHO_BEAM_PCT
+    else:
+        rho_min = MIN_RHO_COLUMN_PCT
+        rho_max = MAX_RHO_COLUMN_PCT
+
+    for _ in range(max_tries):
+        diam = random.choice(long_options)
+        qty = random.randint(qty_lo, qty_hi)
+        rho = rho_percent(diam, qty, dim_a, dim_b)
+        if not (rho_min <= rho <= rho_max):
+            continue
+        geom = validate_rebar_spacing(element_type, dim_a, dim_b, cover, stirrup_diam, diam, qty)
+        if geom["status"] == "conforme":
+            return diam, qty
+    return None
+
+
+def generate_record_random():
+    """Registro totalmente aleatorio (pode ou nao ser conforme).
+
+    Aplica validacao geometrica como cap fisico: reamostra se o arranjo
+    de barras nao cabe na secao.
     """
     element_type = random.choice(ELEMENT_TYPES)
 
     if element_type == "beam":
         dim_a, dim_b = generate_beam_dimensions()
-        cap = PHYSICAL_CAP_RHO_BEAM_PCT
     else:
         dim_a, dim_b = generate_column_dimensions()
-        cap = PHYSICAL_CAP_RHO_COLUMN_PCT
 
-    # Reamostra (diam, qty) até respeitar cap físico
-    for _ in range(100):
-        main_diam = pick_rebar()
-        main_qty = random.randint(*REBAR_QUANTITY_RANGE_RANDOM)
-        if rho_percent(main_diam, main_qty, dim_a, dim_b) <= cap:
-            break
+    cover = random.choice(COVER_OPTIONS)
+    stirrup_diam = random.choice(STIRRUP_OPTIONS)
+
+    combo = _sample_geometric_combo(element_type, dim_a, dim_b, cover, stirrup_diam)
+    if combo is None:
+        # Fallback: menor combo viavel
+        main_diam, main_qty = 8.0, MIN_REBAR_QUANTITY
+    else:
+        main_diam, main_qty = combo
 
     return {
         "element_type": element_type,
@@ -353,84 +490,41 @@ def generate_record_random():
         "dim_b": dim_b,
         "dim_c": generate_dim_c(element_type),
         "fck": random.choice(FCK_OPTIONS),
-        "cover": random.choice(COVER_OPTIONS),
+        "cover": cover,
         "main_rebar_diam": main_diam,
         "main_rebar_quantity": main_qty,
-        "stirrup_diam": random.choice(STIRRUP_OPTIONS),
+        "stirrup_diam": stirrup_diam,
         "stirrup_spacing": random_in_range(*STIRRUP_SPACING_RANGE),
     }
 
 
-def _pick_conforme_rebar_combo(element_type, dim_a, dim_b, fck):
-    """
-    Escolhe (main_rebar_diam, main_rebar_quantity) que atenda à Regra 9
-    (ρ >= ρmin) quando o elemento é viga. Para pilar, qualquer combo
-    dentro do range conforme serve.
-
-    Tenta até 50 sorteios; se nenhum satisfizer, retorna o par máximo
-    (maior bitola e maior quantidade).
-    """
-    qty_lo, qty_hi = REBAR_QUANTITY_RANGE_CONFORME
-    rebar_long_options = [d for d in REBAR_OPTIONS if d >= 8.0]
-
-    rho_min = RHO_MIN_BY_FCK.get(fck, 0.0) if element_type == "beam" else 0.0
-    rho_max = MAX_RHO_BEAM_PCT if element_type == "beam" else MAX_RHO_COLUMN_PCT
-
-    for _ in range(100):
-        diam = random.choice(rebar_long_options)
-        qty = random.randint(qty_lo, qty_hi)
-        rho = rho_percent(diam, qty, dim_a, dim_b)
-        if rho_min <= rho <= rho_max:
-            return diam, qty
-
-    # Fallback: menor combo que cumpre rho_min (prioriza respeitar ρmax)
-    for diam in rebar_long_options:
-        for qty in range(qty_lo, qty_hi + 1):
-            rho = rho_percent(diam, qty, dim_a, dim_b)
-            if rho_min <= rho <= rho_max:
-                return diam, qty
-    return rebar_long_options[0], qty_lo
-
-
 def generate_record_conforme():
-    """
-    Gera um registro propositalmente dentro dos limites da NBR 6118.
-
-    Respeita todas as 9 regras aplicáveis.
-    """
+    """Registro propositalmente dentro de todos os limites."""
     element_type = random.choice(ELEMENT_TYPES)
 
     if element_type == "beam":
         dim_a, dim_b = generate_beam_dimensions()
-        # Garante Regra 6 (viga: dim_a >= 12)
         if dim_a < MIN_BEAM_WIDTH_CM:
             dim_a = MIN_BEAM_WIDTH_CM
     else:
         dim_a, dim_b = generate_column_dimensions()
-        # Garante Regra 7 (pilar: dim_a >= 19)
         while dim_a < MIN_COLUMN_WIDTH_CM:
             dim_a = random.choice(DIM_A_OPTIONS)
 
     dim_c = generate_dim_c(element_type)
-
-    # Regra 5 — fck >= 20 (exclui 10 e 15)
     fck = random.choice([f for f in FCK_OPTIONS if f >= MIN_FCK_MPA])
-
-    # Regra 1 — cobrimento >= 2.5 (múltiplos de 0.5)
     cover = random.choice([c for c in COVER_OPTIONS if c >= MIN_COVER_CM])
-
-    # Regra 3 — estribo >= 5.0 mm (exclui 4.2)
     stirrup_diam = random.choice([d for d in STIRRUP_OPTIONS if d >= MIN_STIRRUP_DIAM_MM])
 
-    # Regras 2 e 4 — espaçamento múltiplo de 5 e <= min(0.6*dim_b, 30)
-    max_spacing = min(dim_b * MAX_STIRRUP_SPACING_FACTOR, MAX_STIRRUP_SPACING_ABS_CM)
-    spacing_options = [s for s in range(5, 35, 5) if s <= max_spacing]
-    stirrup_spacing = random.choice(spacing_options)
+    combo = _sample_conforme_rebar_combo(element_type, dim_a, dim_b, fck, cover, stirrup_diam)
+    if combo is None:
+        main_diam, main_qty = 10.0, MIN_REBAR_QUANTITY
+    else:
+        main_diam, main_qty = combo
 
-    # Regras 8 e 9 — quantidade >= 4 e (se viga) ρ >= ρmin(fck)
-    main_rebar_diam, main_rebar_quantity = _pick_conforme_rebar_combo(
-        element_type, dim_a, dim_b, fck
-    )
+    s_max = max_stirrup_spacing(element_type, dim_a, dim_b, main_diam)
+    # Gera spacing dentro do limite (nao precisa ser multiplo de 5)
+    stirrup_spacing = round(random.uniform(5, max(5.1, s_max)), 1)
 
     return {
         "element_type": element_type,
@@ -439,45 +533,99 @@ def generate_record_conforme():
         "dim_c": dim_c,
         "fck": fck,
         "cover": cover,
-        "main_rebar_diam": main_rebar_diam,
-        "main_rebar_quantity": main_rebar_quantity,
+        "main_rebar_diam": main_diam,
+        "main_rebar_quantity": main_qty,
         "stirrup_diam": stirrup_diam,
-        "stirrup_spacing": float(stirrup_spacing),
+        "stirrup_spacing": stirrup_spacing,
     }
+
+
+def generate_record_borderline():
+    """
+    Registro proximo de algum limite — importante para ML aprender a
+    fronteira de decisao.
+
+    Variacoes sorteadas:
+      - rho proximo do maximo ou minimo
+      - stirrup_spacing proximo do s_max
+      - cover proximo de 2.5
+    """
+    base = generate_record_conforme()
+    strategy = random.choice(["rho_max", "rho_min", "spacing_max", "cover_edge"])
+
+    if strategy == "cover_edge":
+        base["cover"] = random.choice([2.5, 3.0])
+    elif strategy == "spacing_max":
+        s_max = max_stirrup_spacing(
+            base["element_type"], base["dim_a"], base["dim_b"], base["main_rebar_diam"]
+        )
+        base["stirrup_spacing"] = round(max(5.0, s_max - random.uniform(0.0, 1.0)), 1)
+    elif strategy in ("rho_max", "rho_min"):
+        # Tenta ajustar qty para ficar perto do limite
+        rho_target = MAX_RHO_BEAM_PCT if base["element_type"] == "beam" and strategy == "rho_max" else (
+            MAX_RHO_COLUMN_PCT if strategy == "rho_max" else (
+                RHO_MIN_BEAM_BY_FCK.get(base["fck"], 0.15) if base["element_type"] == "beam"
+                else MIN_RHO_COLUMN_PCT
+            )
+        )
+        ac = base["dim_a"] * base["dim_b"]
+        target_as = (rho_target / 100.0) * ac
+        diam = base["main_rebar_diam"]
+        qty = max(MIN_REBAR_QUANTITY, min(20, round(target_as / bar_area_cm2(diam))))
+        base["main_rebar_quantity"] = qty
+    return base
 
 
 # ---------------------------------------------------------------------------
 # Pipeline do dataset
 # ---------------------------------------------------------------------------
-def generate_dataset(n=1000, target_conforme_ratio=0.50, max_attempts_factor=5):
+def generate_dataset(
+    n=2000,
+    target_conforme_ratio=0.50,
+    borderline_ratio=0.15,
+    max_attempts_factor=10,
+):
     """
-    Gera o dataset completo, balanceado conforme/não conforme.
+    Gera o dataset balanceado conforme/nao_conforme.
 
-    Usa retry loop: continua sorteando conformes até atingir a cota,
-    e não-conformes até completar o restante. Evita desbalanceamento
-    causado por "vazamento" (conformes que falham em alguma regra).
+    Estrategia:
+      - ~50% conformes (inclui fracao borderline proximos dos limites).
+      - ~50% nao-conformes (random rejeitado via retry).
     """
-    n_conforme_target = int(n * target_conforme_ratio)
-    n_nao_conforme_target = n - n_conforme_target
+    n_conf_target = int(n * target_conforme_ratio)
+    n_nc_target = n - n_conf_target
+    n_borderline = int(n_conf_target * borderline_ratio)
+    n_plain_conf = n_conf_target - n_borderline
 
     max_attempts = n * max_attempts_factor
     conformes = []
     nao_conformes = []
 
+    # Conformes "comuns"
     attempts = 0
-    while len(conformes) < n_conforme_target and attempts < max_attempts:
-        record = generate_record_conforme()
-        record["conformity"] = check_conformity(record)
-        if record["conformity"] == "conforme":
-            conformes.append(record)
+    while len(conformes) < n_plain_conf and attempts < max_attempts:
+        rec = generate_record_conforme()
+        rec["conformity"] = check_conformity(rec)
+        if rec["conformity"] == "conforme":
+            conformes.append(rec)
         attempts += 1
 
+    # Conformes "borderline"
     attempts = 0
-    while len(nao_conformes) < n_nao_conforme_target and attempts < max_attempts:
-        record = generate_record_random()
-        record["conformity"] = check_conformity(record)
-        if record["conformity"] == "nao_conforme":
-            nao_conformes.append(record)
+    while len(conformes) < n_conf_target and attempts < max_attempts:
+        rec = generate_record_borderline()
+        rec["conformity"] = check_conformity(rec)
+        if rec["conformity"] == "conforme":
+            conformes.append(rec)
+        attempts += 1
+
+    # Nao conformes via random
+    attempts = 0
+    while len(nao_conformes) < n_nc_target and attempts < max_attempts:
+        rec = generate_record_random()
+        rec["conformity"] = check_conformity(rec)
+        if rec["conformity"] == "nao_conforme":
+            nao_conformes.append(rec)
         attempts += 1
 
     records = conformes + nao_conformes
@@ -486,29 +634,23 @@ def generate_dataset(n=1000, target_conforme_ratio=0.50, max_attempts_factor=5):
 
 
 def save_csv(records, filepath):
-    """Salva a lista de registros como CSV."""
+    """Salva os registros como CSV (schema fixo)."""
     fieldnames = [
         "element_type",
-        "dim_a",
-        "dim_b",
-        "dim_c",
-        "fck",
-        "cover",
-        "main_rebar_diam",
-        "main_rebar_quantity",
-        "stirrup_diam",
-        "stirrup_spacing",
+        "dim_a", "dim_b", "dim_c",
+        "fck", "cover",
+        "main_rebar_diam", "main_rebar_quantity",
+        "stirrup_diam", "stirrup_spacing",
         "conformity",
     ]
-
     with open(filepath, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(records)
 
 
 def main():
-    """Ponto de entrada: gera dataset e exibe estatísticas."""
+    """Gera dataset e exibe estatisticas."""
     records = generate_dataset(n=2000, target_conforme_ratio=0.50)
 
     total = len(records)
@@ -517,17 +659,28 @@ def main():
 
     print(f"Total de registros: {total}")
     print(f"Conformes:          {conformes} ({100 * conformes / total:.1f}%)")
-    print(f"Não conformes:      {nao_conformes} ({100 * nao_conformes / total:.1f}%)")
+    print(f"Nao conformes:      {nao_conformes} ({100 * nao_conformes / total:.1f}%)")
 
-    print("\nDistribuição por tipo de elemento:")
+    print("\nDistribuicao por tipo de elemento:")
     for etype in ELEMENT_TYPES:
         count = sum(1 for r in records if r["element_type"] == etype)
         conf = sum(
-            1
-            for r in records
+            1 for r in records
             if r["element_type"] == etype and r["conformity"] == "conforme"
         )
-        print(f"  {etype:8s}: {count} registros ({conf} conformes, {count - conf} não conformes)")
+        print(f"  {etype:8s}: {count} registros ({conf} conformes, {count - conf} nao conformes)")
+
+    # Distribuicao de motivos nos nao-conformes (para diagnostico)
+    from collections import Counter
+    reasons = Counter()
+    for r in records:
+        detail = check_conformity_detailed(r)
+        if detail["status"] == "nao_conforme":
+            reasons[detail["reason"]] += 1
+    if reasons:
+        print("\nMotivos de nao-conformidade:")
+        for reason, count in reasons.most_common():
+            print(f"  {reason:30s}: {count}")
 
     output_dir = os.path.dirname(os.path.abspath(__file__))
     filepath = os.path.join(output_dir, "structural_conformity.csv")
