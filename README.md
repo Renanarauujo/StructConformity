@@ -6,26 +6,24 @@ MVP da pós-graduação em Engenharia de Software pela PUC-RJ.
 
 ## Sobre
 
-Modelo de ML que classifica se um elemento estrutural (viga, pilar, laje, sapata) está **conforme** ou **não conforme** com a NBR 6118, baseado em propriedades geométricas e de armação.
+Modelo de ML que classifica se uma viga ou pilar está **conforme** ou **não conforme** com a NBR 6118, a partir de propriedades geométricas e de armação.
 
-- **Dataset:** Sintético, 1000 registros gerados a partir de 8 regras da NBR 6118
-- **Classificação:** Binária (Conforme / Não Conforme)
-- **Algoritmos:** KNN, Árvore de Decisão, Naive Bayes, SVM
-- **Melhor modelo:** Árvore de Decisão (98.7% acurácia, 98% recall para Não Conforme)
+- **Dataset:** sintético, 20.000 registros gerados a partir de 10 regras da NBR 6118
+- **Classificação:** binária (Conforme / Não Conforme)
+- **Algoritmos testados:** KNN, Árvore de Decisão, Naive Bayes, SVM
+- **Modelo exportado:** Árvore de Decisão (acurácia ~97%, recall Não Conforme ~97%)
 
 ## Estrutura
 
 ```
 StructConformity/
-├── notebook/           # Notebook Colab (pipeline ML completo)
-├── backend/            # API Flask + modelo exportado (.pkl)
-│   ├── app.py          # Servidor Flask com endpoint /predict
-│   ├── test_model.py   # Testes PyTest de performance do modelo
-│   └── model/          # Modelo treinado (best_model.pkl)
-├── frontend/           # Interface web (HTML + CSS + JS)
-├── dataset/            # Dataset CSV + script gerador
-├── docs/               # Documentação (DATA_CONTEXT, DEV_LOG, PROGRESS)
-└── notes/              # Notas de estudo
+├── notebook/           Notebook Colab com o pipeline ML completo
+├── backend/            API Flask e modelo exportado
+│   ├── app.py          Servidor Flask com endpoint /predict
+│   ├── test_model.py   Testes PyTest de performance do modelo
+│   └── model/          Modelo treinado (best.pkl)
+├── frontend/           Interface web (HTML, CSS, JS)
+└── dataset/            CSV e script gerador
 ```
 
 ## Como rodar
@@ -45,11 +43,11 @@ cd backend
 python app.py
 ```
 
-A API roda em `http://localhost:5000`. Documentação Swagger em `http://localhost:5000/openapi/swagger`.
+A API roda em `http://localhost:5000`. Swagger em `http://localhost:5000/openapi/swagger`.
 
 ### 3. Abrir o frontend
 
-Abrir `frontend/index.html` no navegador. Preencher os campos do elemento estrutural e clicar em "Verificar Conformidade".
+Abra `frontend/index.html` no navegador. Preencha os campos e clique em **Verificar conformidade**.
 
 ### 4. Rodar os testes
 
@@ -58,28 +56,43 @@ cd backend
 pytest test_model.py -v
 ```
 
-## Features do elemento
+## Features de entrada
 
 | Feature | Tipo | Descrição |
-|---------|------|-----------|
-| element_type | int | 0=viga, 1=pilar, 2=sapata, 3=laje |
-| width_cm | float | Largura em cm |
-| height_cm | float | Altura em cm |
-| fck | float | Resistência do concreto em MPa |
-| cover_cm | float | Cobrimento em cm |
-| main_rebar_diam | float | Bitola longitudinal em mm |
-| stirrup_diam | float | Bitola do estribo em mm |
-| stirrup_spacing_cm | float | Espaçamento de estribos em cm |
-| steel_rate | float | Taxa de armadura em kg/m3 |
-| length_cm | float | Comprimento em cm |
+|---|---|---|
+| `element_type` | int | 0 = viga, 1 = pilar |
+| `dim_a` | float | Largura da seção (cm) |
+| `dim_b` | float | Altura da seção (cm) |
+| `dim_c` | float | Comprimento da viga ou altura em Z do pilar (cm) |
+| `fck` | float | Resistência do concreto (MPa) |
+| `cover` | float | Cobrimento (cm) |
+| `main_rebar_diam` | float | Bitola longitudinal (mm) |
+| `main_rebar_quantity` | int | Quantidade de barras longitudinais |
+| `stirrup_diam` | float | Bitola do estribo (mm) |
+| `stirrup_spacing` | float | Espaçamento dos estribos (cm) |
+
+## Regras de conformidade
+
+São 10 regras aplicadas no gerador e na avaliação:
+
+1. Cobrimento ≥ 2,5 cm
+2. fck ≥ 20 MPa
+3. Largura mínima da seção (viga ≥ 12 cm; pilar ≥ 19 cm)
+4. Quantidade mínima de barras longitudinais ≥ 4
+5. Bitola do estribo ≥ 5,0 mm
+6. Bitola longitudinal mínima (viga ≥ 8 mm; pilar ≥ 10 mm)
+7. Espaçamento máximo de estribos (critério específico por tipo)
+8. Taxa mínima de armadura (viga segue tabela da NBR por fck; pilar ≥ 0,4%)
+9. Taxa máxima de armadura (viga ≤ 4%; pilar ≤ 8%)
+10. Espaçamento geométrico real — verifica se as barras cabem na seção respeitando a distância mínima entre barras e o agregado graúdo
 
 ## Tecnologias
 
 - **ML:** Python, Scikit-Learn, Pandas, NumPy
 - **Backend:** Flask, flask-openapi3, flask-cors
-- **Frontend:** HTML, CSS, JavaScript
+- **Frontend:** HTML, CSS, JavaScript puro
 - **Testes:** PyTest
 
 ## Autor
 
-Renan Araujo - Pós-graduação em Engenharia de Software, PUC-RJ
+Renan Araújo — Pós-graduação em Engenharia de Software, PUC-RJ
