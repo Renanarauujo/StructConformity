@@ -3,113 +3,163 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>StructConformity</title>
+    <title>StructConformity — Verificador NBR 6118</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="container">
         <header>
             <h1>StructConformity</h1>
-            <p class="subtitle">Classificação de conformidade estrutural via Machine Learning</p>
         </header>
 
-        <form id="predict-form">
-            <div class="form-grid">
-                <div class="field">
-                    <label for="element_type">Tipo de elemento</label>
-                    <select id="element_type" required>
-                        <option value="">Selecione...</option>
-                        <option value="0">Viga</option>
-                        <option value="1">Pilar</option>
-                    </select>
+        <form id="predict-form" novalidate>
+            <!-- Tipo de elemento -->
+            <section class="group">
+                <h2 class="group-title">Elemento</h2>
+                <div class="segmented" role="radiogroup" aria-label="Tipo de elemento">
+                    <input type="radio" id="type-beam" name="element_type" value="0" checked>
+                    <label for="type-beam" class="seg-option">
+                        <span class="seg-icon">▭</span> Viga
+                    </label>
+                    <input type="radio" id="type-column" name="element_type" value="1">
+                    <label for="type-column" class="seg-option">
+                        <span class="seg-icon">▯</span> Pilar
+                    </label>
                 </div>
 
-                <div class="field">
-                    <label for="dim_a">dim_a — largura da seção (cm)</label>
-                    <input type="number" id="dim_a" step="5" min="10" placeholder="Ex: 20" required>
+                <div class="presets">
+                    <button type="button" class="preset" data-preset="viga-tipica">Viga típica</button>
+                    <button type="button" class="preset" data-preset="pilar-tipico">Pilar típico</button>
+                    <button type="button" class="preset" data-preset="limpar">Limpar</button>
                 </div>
+            </section>
 
-                <div class="field">
-                    <label for="dim_b">dim_b — altura da seção (cm)</label>
-                    <input type="number" id="dim_b" step="5" min="15" placeholder="Ex: 50" required>
+            <!-- Geometria -->
+            <section class="group">
+                <h2 class="group-title">Geometria <span class="hint">cm</span></h2>
+                <div class="form-grid">
+                    <div class="field">
+                        <label for="dim_a">
+                            Largura da seção
+                            <span class="label-hint" id="dim_a_hint">dim_a</span>
+                        </label>
+                        <input type="number" id="dim_a" step="5" min="10" max="80" value="20" required>
+                    </div>
+                    <div class="field">
+                        <label for="dim_b">
+                            Altura da seção
+                            <span class="label-hint" id="dim_b_hint">dim_b</span>
+                        </label>
+                        <input type="number" id="dim_b" step="5" min="15" max="120" value="50" required>
+                    </div>
+                    <div class="field full">
+                        <label for="dim_c">
+                            <span id="dim_c_label">Comprimento da viga</span>
+                            <span class="label-hint">dim_c</span>
+                        </label>
+                        <input type="number" id="dim_c" step="5" min="100" max="1200" value="500" required>
+                    </div>
                 </div>
+            </section>
 
-                <div class="field">
-                    <label for="dim_c">dim_c — comprimento / altura Z (cm)</label>
-                    <input type="number" id="dim_c" step="5" min="100" placeholder="Ex: 500" required>
+            <!-- Concreto -->
+            <section class="group">
+                <h2 class="group-title">Concreto</h2>
+                <div class="form-grid">
+                    <div class="field">
+                        <label for="fck">fck <span class="label-hint">MPa</span></label>
+                        <select id="fck" required>
+                            <option value="10">10 (fora norma)</option>
+                            <option value="15">15 (fora norma)</option>
+                            <option value="20">20</option>
+                            <option value="25" selected>25</option>
+                            <option value="30">30</option>
+                            <option value="35">35</option>
+                            <option value="40">40</option>
+                            <option value="45">45</option>
+                            <option value="50">50</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="cover">Cobrimento <span class="label-hint">cm</span></label>
+                        <select id="cover" required>
+                            <option value="0">0,0</option>
+                            <option value="0.5">0,5</option>
+                            <option value="1">1,0</option>
+                            <option value="1.5">1,5</option>
+                            <option value="2">2,0</option>
+                            <option value="2.5">2,5</option>
+                            <option value="3" selected>3,0</option>
+                            <option value="3.5">3,5</option>
+                            <option value="4">4,0</option>
+                            <option value="4.5">4,5</option>
+                        </select>
+                    </div>
                 </div>
+            </section>
 
-                <div class="field">
-                    <label for="fck">fck (MPa)</label>
-                    <select id="fck" required>
-                        <option value="">Selecione...</option>
-                        <option value="10">10</option>
-                        <option value="15">15</option>
-                        <option value="20">20</option>
-                        <option value="25">25</option>
-                        <option value="30">30</option>
-                        <option value="35">35</option>
-                        <option value="40">40</option>
-                        <option value="45">45</option>
-                        <option value="50">50</option>
-                    </select>
+            <!-- Armaduras -->
+            <section class="group">
+                <h2 class="group-title">Armadura longitudinal</h2>
+                <div class="form-grid">
+                    <div class="field">
+                        <label for="main_rebar_diam">Bitola <span class="label-hint">mm</span></label>
+                        <select id="main_rebar_diam" required>
+                            <option value="4.2">φ 4,2</option>
+                            <option value="5.0">φ 5,0</option>
+                            <option value="6.3">φ 6,3</option>
+                            <option value="8.0">φ 8,0</option>
+                            <option value="10.0" selected>φ 10,0</option>
+                            <option value="12.5">φ 12,5</option>
+                            <option value="16.0">φ 16,0</option>
+                            <option value="20.0">φ 20,0</option>
+                            <option value="22.0">φ 22,0</option>
+                            <option value="25.0">φ 25,0</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="main_rebar_quantity">Quantidade de barras</label>
+                        <input type="number" id="main_rebar_quantity" step="1" min="1" max="30" value="6" required>
+                    </div>
                 </div>
+                <p class="rho-live">
+                    Taxa de armadura estimada <strong id="rho_value">—</strong>
+                </p>
+            </section>
 
-                <div class="field">
-                    <label for="cover">Cobrimento (cm)</label>
-                    <input type="number" id="cover" step="0.5" min="0" placeholder="Ex: 3.0" required>
+            <section class="group">
+                <h2 class="group-title">Estribos</h2>
+                <div class="form-grid">
+                    <div class="field">
+                        <label for="stirrup_diam">Bitola <span class="label-hint">mm</span></label>
+                        <select id="stirrup_diam" required>
+                            <option value="4.2">φ 4,2</option>
+                            <option value="5.0" selected>φ 5,0</option>
+                            <option value="6.3">φ 6,3</option>
+                            <option value="8.0">φ 8,0</option>
+                            <option value="10.0">φ 10,0</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="stirrup_spacing">Espaçamento <span class="label-hint">cm</span></label>
+                        <input type="number" id="stirrup_spacing" step="1" min="5" max="35" value="15" required>
+                    </div>
                 </div>
+            </section>
 
-                <div class="field">
-                    <label for="main_rebar_diam">Bitola longitudinal (mm)</label>
-                    <select id="main_rebar_diam" required>
-                        <option value="">Selecione...</option>
-                        <option value="4.2">4.2</option>
-                        <option value="5.0">5.0</option>
-                        <option value="6.3">6.3</option>
-                        <option value="8.0">8.0</option>
-                        <option value="10.0">10.0</option>
-                        <option value="12.5">12.5</option>
-                        <option value="16.0">16.0</option>
-                        <option value="20.0">20.0</option>
-                        <option value="22.0">22.0</option>
-                        <option value="25.0">25.0</option>
-                    </select>
-                </div>
-
-                <div class="field">
-                    <label for="main_rebar_quantity">Quantidade de barras longitudinais</label>
-                    <input type="number" id="main_rebar_quantity" step="1" min="2" placeholder="Ex: 6" required>
-                </div>
-
-                <div class="field">
-                    <label for="stirrup_diam">Bitola do estribo (mm)</label>
-                    <select id="stirrup_diam" required>
-                        <option value="">Selecione...</option>
-                        <option value="4.2">4.2</option>
-                        <option value="5.0">5.0</option>
-                        <option value="6.3">6.3</option>
-                        <option value="8.0">8.0</option>
-                        <option value="10.0">10.0</option>
-                    </select>
-                </div>
-
-                <div class="field">
-                    <label for="stirrup_spacing">Espaçamento estribos (cm)</label>
-                    <input type="number" id="stirrup_spacing" step="0.1" min="5" placeholder="Ex: 15" required>
-                </div>
-            </div>
-
-            <button type="submit" id="btn-predict">Verificar Conformidade</button>
+            <button type="submit" id="btn-predict">Verificar conformidade</button>
         </form>
 
         <div id="result" class="result hidden">
-            <span id="result-icon"></span>
-            <span id="result-text"></span>
+            <span id="result-icon" class="result-icon"></span>
+            <div class="result-text">
+                <strong id="result-title"></strong>
+                <span id="result-subtitle"></span>
+            </div>
         </div>
 
         <footer>
-            <p>MVP Pós-Graduação em Engenharia de Software - PUC-RJ</p>
+            <p>MVP Pós-Graduação em Engenharia de Software — PUC-RJ</p>
         </footer>
     </div>
 
