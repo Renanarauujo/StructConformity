@@ -614,52 +614,42 @@ def generate_fail_stirrup_spacing():
 
 
 def generate_fail_rho_low():
-    """Reduz qty para que rho fique abaixo do minimo."""
-    rec = _base_conforme_seed()
-    # Menor bitola permitida + quantidade minima tende a render rho baixo
-    if rec["element_type"] == "beam":
-        rec["main_rebar_diam"] = MIN_MAIN_REBAR_DIAM_BEAM_MM
-    else:
-        rec["main_rebar_diam"] = MIN_MAIN_REBAR_DIAM_COLUMN_MM
-    rec["main_rebar_quantity"] = MIN_REBAR_QUANTITY
-    # Aumenta Ac (secao grande) para derrubar rho
-    rec["dim_a"] = max(rec["dim_a"], 40)
-    rec["dim_b"] = max(rec["dim_b"], 80)
-    return rec
-
-
-def generate_fail_rho_high():
-    """Aumenta qty e bitola ate rho passar do maximo, sem violar geometria."""
-    rec = _base_conforme_seed()
-    # Secao pequena + bitola grande + muitas barras
-    rec["main_rebar_diam"] = 25.0
-    rec["main_rebar_quantity"] = random.randint(12, 20)
-    return rec
-
-
-def generate_fail_geometric_spacing():
     """
-    Muitas barras PEQUENAS numa secao estreita: a geometria nao acomoda
-    mas rho permanece dentro dos limites (para que a falha seja de fato
-    geometrica, nao de taxa de armadura).
+    Constroi combinacao (dim grande, phi pequeno, qty baixa) que garanta
+    rho < rho_min do tipo. Diversifica para o ML aprender a fronteira.
     """
     element_type = random.choice(ELEMENT_TYPES)
     if element_type == "beam":
-        dim_a = random.choice([w for w in DIM_A_OPTIONS if 12 <= w <= 15])
-        min_b = max(20, dim_a * 2)
+        dim_a = random.choice([w for w in DIM_A_OPTIONS if 15 <= w <= 30])
+        min_b = max(40, dim_a * 3)
         max_b = min(120, dim_a * 4)
-        dim_b_opts = [h for h in DIM_B_OPTIONS if min_b <= h <= max_b]
-        dim_b = random.choice(dim_b_opts) if dim_b_opts else dim_a * 2
-        main_diam = random.choice([8.0, 10.0, 12.5])
+        opts = [h for h in DIM_B_OPTIONS if min_b <= h <= max_b]
+        dim_b = random.choice(opts) if opts else 80
     else:
-        dim_a = random.choice([w for w in DIM_A_OPTIONS if 19 <= w <= 25])
-        dim_b = random.choice([h for h in DIM_B_OPTIONS if 20 <= h <= 30])
-        main_diam = random.choice([10.0, 12.5, 16.0])
+        dim_a = random.choice([w for w in DIM_A_OPTIONS if 30 <= w <= 80])
+        dim_b = random.choice([h for h in DIM_B_OPTIONS if 40 <= h <= 120])
 
     cover = random.choice([c for c in COVER_OPTIONS if c >= MIN_COVER_CM])
     fck = random.choice([f for f in FCK_OPTIONS if f >= MIN_FCK_MPA])
-    stirrup_diam = random.choice([5.0, 6.3])
-    main_qty = random.randint(14, 20)
+    stirrup_diam = random.choice([d for d in STIRRUP_OPTIONS if d >= MIN_STIRRUP_DIAM_MM])
+    long_options = _long_options_for(element_type)
+    ac = dim_a * dim_b
+    rho_min = RHO_MIN_BEAM_BY_FCK.get(fck, 0.15) if element_type == "beam" else MIN_RHO_COLUMN_PCT
+
+    main_diam, main_qty = None, None
+    for _ in range(60):
+        phi = random.choice(long_options)
+        max_qty = math.floor((rho_min / 100.0) * ac / bar_area_cm2(phi)) - 1
+        if max_qty < MIN_REBAR_QUANTITY:
+            continue
+        qty = random.randint(MIN_REBAR_QUANTITY, max_qty)
+        main_diam, main_qty = phi, qty
+        break
+
+    if main_diam is None:
+        main_diam = min(long_options)
+        main_qty = MIN_REBAR_QUANTITY
+
     s_max = max_stirrup_spacing(element_type, dim_a, dim_b, main_diam)
     stirrup_spacing = round(random.uniform(5, max(5.1, s_max)), 1)
 
@@ -669,6 +659,127 @@ def generate_fail_geometric_spacing():
         "fck": fck, "cover": cover,
         "main_rebar_diam": main_diam, "main_rebar_quantity": main_qty,
         "stirrup_diam": stirrup_diam, "stirrup_spacing": stirrup_spacing,
+    }
+
+
+def generate_fail_rho_high():
+    """
+    Constroi combinacao (dim, phi, qty) que garanta rho > rho_max do tipo.
+    Diversifica ao longo de bitolas, quantidades e secoes para o ML aprender
+    a razao As/Ac em varios contextos.
+    """
+    element_type = random.choice(ELEMENT_TYPES)
+    if element_type == "beam":
+        dim_a = random.choice([w for w in DIM_A_OPTIONS if 12 <= w <= 30])
+        min_b = max(20, dim_a * 2)
+        max_b = min(120, dim_a * 4)
+        opts = [h for h in DIM_B_OPTIONS if min_b <= h <= max_b]
+        dim_b = random.choice(opts) if opts else dim_a * 2
+        rho_limit = MAX_RHO_BEAM_PCT
+    else:
+        dim_a = random.choice([w for w in DIM_A_OPTIONS if 19 <= w <= 50])
+        dim_b = random.choice([h for h in DIM_B_OPTIONS if 20 <= h <= 80])
+        rho_limit = MAX_RHO_COLUMN_PCT
+
+    cover = random.choice([c for c in COVER_OPTIONS if c >= MIN_COVER_CM])
+    fck = random.choice([f for f in FCK_OPTIONS if f >= MIN_FCK_MPA])
+    stirrup_diam = random.choice([d for d in STIRRUP_OPTIONS if d >= MIN_STIRRUP_DIAM_MM])
+    long_options = _long_options_for(element_type)
+    ac = dim_a * dim_b
+
+    # Escolhe (phi, qty) tal que rho > rho_limit, diversificando bitolas
+    main_diam = None
+    main_qty = None
+    for _ in range(60):
+        phi = random.choice(long_options)
+        min_qty = math.ceil((rho_limit / 100.0) * ac / bar_area_cm2(phi)) + 1
+        if min_qty < MIN_REBAR_QUANTITY or min_qty > 20:
+            continue
+        qty = random.randint(min_qty, 20)
+        main_diam, main_qty = phi, qty
+        break
+
+    if main_diam is None:
+        # Fallback: bitola maior + qty alta
+        main_diam = max(long_options)
+        main_qty = 20
+
+    s_max = max_stirrup_spacing(element_type, dim_a, dim_b, main_diam)
+    stirrup_spacing = round(random.uniform(5, max(5.1, s_max)), 1)
+
+    return {
+        "element_type": element_type,
+        "dim_a": dim_a, "dim_b": dim_b, "dim_c": generate_dim_c(element_type),
+        "fck": fck, "cover": cover,
+        "main_rebar_diam": main_diam, "main_rebar_quantity": main_qty,
+        "stirrup_diam": stirrup_diam, "stirrup_spacing": stirrup_spacing,
+    }
+
+
+def generate_fail_geometric_spacing():
+    """
+    Constroi combinacao onde as barras NAO CABEM fisicamente, mas rho
+    permanece dentro dos limites (isola a falha geometrica).
+
+    Estrategia: valida em loop — tenta combinacoes diversas e aceita
+    apenas as que:
+      - rho_min <= rho <= rho_max (nao fere regra 7/8/9)
+      - validate_rebar_spacing retorna nao_conforme
+    """
+    for _ in range(200):
+        element_type = random.choice(ELEMENT_TYPES)
+        if element_type == "beam":
+            dim_a = random.choice([w for w in DIM_A_OPTIONS if 12 <= w <= 20])
+            min_b = max(20, dim_a * 2)
+            max_b = min(120, dim_a * 4)
+            opts = [h for h in DIM_B_OPTIONS if min_b <= h <= max_b]
+            dim_b = random.choice(opts) if opts else dim_a * 2
+        else:
+            dim_a = random.choice([w for w in DIM_A_OPTIONS if 19 <= w <= 30])
+            dim_b = random.choice([h for h in DIM_B_OPTIONS if 20 <= h <= 40])
+
+        cover = random.choice([c for c in COVER_OPTIONS if c >= MIN_COVER_CM])
+        fck = random.choice([f for f in FCK_OPTIONS if f >= MIN_FCK_MPA])
+        stirrup_diam = random.choice([d for d in STIRRUP_OPTIONS if d >= MIN_STIRRUP_DIAM_MM])
+        main_diam = random.choice(_long_options_for(element_type))
+        main_qty = random.randint(12, 20)
+
+        # Valida rho dentro dos limites
+        rho = rho_percent(main_diam, main_qty, dim_a, dim_b)
+        if element_type == "beam":
+            rho_lo = RHO_MIN_BEAM_BY_FCK.get(fck, 0.15)
+            rho_hi = MAX_RHO_BEAM_PCT
+        else:
+            rho_lo = MIN_RHO_COLUMN_PCT
+            rho_hi = MAX_RHO_COLUMN_PCT
+        if not (rho_lo <= rho <= rho_hi):
+            continue
+
+        # Valida que a geometria NAO cabe
+        geom = validate_rebar_spacing(
+            element_type, dim_a, dim_b, cover, stirrup_diam, main_diam, main_qty,
+        )
+        if geom["status"] == "conforme":
+            continue
+
+        s_max = max_stirrup_spacing(element_type, dim_a, dim_b, main_diam)
+        stirrup_spacing = round(random.uniform(5, max(5.1, s_max)), 1)
+
+        return {
+            "element_type": element_type,
+            "dim_a": dim_a, "dim_b": dim_b, "dim_c": generate_dim_c(element_type),
+            "fck": fck, "cover": cover,
+            "main_rebar_diam": main_diam, "main_rebar_quantity": main_qty,
+            "stirrup_diam": stirrup_diam, "stirrup_spacing": stirrup_spacing,
+        }
+
+    # Fallback garantido: muitas barras numa secao minima
+    return {
+        "element_type": "beam",
+        "dim_a": 12, "dim_b": 30, "dim_c": 300,
+        "fck": 25, "cover": 3.0,
+        "main_rebar_diam": 10.0, "main_rebar_quantity": 20,
+        "stirrup_diam": 5.0, "stirrup_spacing": 15.0,
     }
 
 
@@ -856,7 +967,7 @@ def save_csv(records, filepath):
 
 def main():
     """Gera dataset e exibe estatisticas."""
-    records = generate_dataset(n=10000, target_conforme_ratio=0.50)
+    records = generate_dataset(n=20000, target_conforme_ratio=0.50)
 
     total = len(records)
     conformes = sum(1 for r in records if r["conformity"] == "conforme")
