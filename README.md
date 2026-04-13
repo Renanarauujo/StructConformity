@@ -95,4 +95,4 @@ São 10 regras aplicadas no gerador e na avaliação:
 
 ## Autor
 
-Renan Araújo — Pós-graduação em Engenharia de Software, PUC-RJ
+Renan Araújo - Pós-graduação em Engenharia de Software, PUC-RJ
